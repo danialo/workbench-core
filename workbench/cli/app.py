@@ -386,6 +386,18 @@ def config_validate():
 
 
 @app.command()
+def tui(
+    provider: Optional[str] = typer.Option(None, help="LLM provider name"),
+    profile: Optional[str] = typer.Option(None, help="Config profile name"),
+    session: Optional[str] = typer.Option(None, "--session", help="Resume session ID"),
+):
+    """Launch the split-pane TUI interface."""
+    from workbench.tui.app import launch_tui
+
+    asyncio.run(launch_tui(provider, profile, session))
+
+
+@app.command()
 def version():
     """Show version."""
     console.print("workbench-core v0.1.0")
