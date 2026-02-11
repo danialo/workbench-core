@@ -29,6 +29,9 @@ dev = [
     "ruff>=0.1",
 ]
 
+[project.scripts]
+wb = "workbench.cli.app:app"
+
 [project.entry-points."workbench.tools"]
 
 [tool.setuptools.packages.find]
