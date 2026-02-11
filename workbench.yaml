@@ -1,0 +1,16 @@
+llm:
+  name: openai
+  model: gpt-4o
+  api_base: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  timeout_seconds: 120
+
+policy:
+  max_risk: SHELL
+  confirm_destructive: true
+  confirm_shell: true
+  confirm_write: false
+  blocked_patterns:
+    - "rm\\s+-rf\\s+/"
+    - "mkfs\\."
+    - "dd\\s+if=.+of=/dev/"
