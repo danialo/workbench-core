@@ -176,6 +176,91 @@ class RunDiagnosticTool(Tool):
             )
 
 
+class RunShellTool(Tool):
+    """Execute a shell command on a target system."""
+
+    def __init__(self, backend: ExecutionBackend) -> None:
+        self._backend = backend
+
+    @property
+    def name(self) -> str:
+        return "run_shell"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Execute a shell command on a target system. "
+            "Use for running system commands, scripts, log inspection, and troubleshooting."
+        )
+
+    @property
+    def parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute.",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Target system (default: localhost).",
+                    "default": "localhost",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout in seconds (default: 30).",
+                    "default": 30,
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory for the command.",
+                },
+            },
+            "required": ["command"],
+        }
+
+    @property
+    def risk_level(self) -> ToolRisk:
+        return ToolRisk.SHELL
+
+    @property
+    def privacy_scope(self) -> PrivacyScope:
+        return PrivacyScope.SENSITIVE
+
+    async def execute(self, **kwargs) -> ToolResult:
+        command = kwargs["command"]
+        target = kwargs.get("target", "localhost")
+        shell_kwargs = {}
+        if "timeout" in kwargs:
+            shell_kwargs["timeout"] = kwargs["timeout"]
+        if "cwd" in kwargs:
+            shell_kwargs["cwd"] = kwargs["cwd"]
+        try:
+            result = await self._backend.run_shell(command, target, **shell_kwargs)
+            # Build human-readable content
+            parts = []
+            if result.get("stdout"):
+                parts.append(result["stdout"].rstrip())
+            if result.get("stderr"):
+                parts.append(f"[stderr]\n{result['stderr'].rstrip()}")
+            content = "\n".join(parts) if parts else "(no output)"
+            if result.get("exit_code", 0) != 0:
+                content += f"\n[exit code: {result['exit_code']}]"
+            return ToolResult(
+                success=result.get("exit_code", -1) == 0,
+                content=content,
+                data=result,
+            )
+        except BackendError as e:
+            return ToolResult(
+                success=False,
+                content=str(e),
+                error=str(e),
+                error_code=ErrorCode.BACKEND_ERROR,
+            )
+
+
 class SummarizeArtifactTool(Tool):
     """Retrieve and summarize a stored artifact."""
 

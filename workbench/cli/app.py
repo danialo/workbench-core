@@ -100,21 +100,26 @@ async def _setup_stack(
         allow_tools=set(cfg.plugins.allow_tools) if cfg.plugins.allow_tools else None,
     )
 
-    # Try to set up demo backend bridge tools
+    # Backend bridge tools
     try:
         from workbench.backends.bridge import (
             ListDiagnosticsTool,
             ResolveTargetTool,
             RunDiagnosticTool,
+            RunShellTool,
             SummarizeArtifactTool,
         )
         from workbench.backends.demo import DemoBackend
+        from workbench.backends.local import LocalBackend
 
         backend = DemoBackend()
         registry.register(ResolveTargetTool(backend))
         registry.register(ListDiagnosticsTool(backend))
         registry.register(RunDiagnosticTool(backend))
         registry.register(SummarizeArtifactTool(artifact_store))
+
+        local_backend = LocalBackend()
+        registry.register(RunShellTool(local_backend))
     except Exception:
         pass
 
@@ -290,15 +295,17 @@ def tools_list(
 
     registry = ToolRegistry()
 
-    # Load demo tools
+    # Load tools
     try:
         from workbench.backends.bridge import (
             ListDiagnosticsTool,
             ResolveTargetTool,
             RunDiagnosticTool,
+            RunShellTool,
             SummarizeArtifactTool,
         )
         from workbench.backends.demo import DemoBackend
+        from workbench.backends.local import LocalBackend
         from workbench.session.artifacts import ArtifactStore
         import tempfile
 
@@ -307,6 +314,9 @@ def tools_list(
         registry.register(ListDiagnosticsTool(backend))
         registry.register(RunDiagnosticTool(backend))
         registry.register(SummarizeArtifactTool(ArtifactStore(tempfile.mkdtemp())))
+
+        local_backend = LocalBackend()
+        registry.register(RunShellTool(local_backend))
     except Exception:
         pass
 
@@ -333,9 +343,11 @@ def tools_info(tool_name: str = typer.Argument(..., help="Tool name")):
             ListDiagnosticsTool,
             ResolveTargetTool,
             RunDiagnosticTool,
+            RunShellTool,
             SummarizeArtifactTool,
         )
         from workbench.backends.demo import DemoBackend
+        from workbench.backends.local import LocalBackend
         from workbench.session.artifacts import ArtifactStore
         import tempfile
 
@@ -344,6 +356,9 @@ def tools_info(tool_name: str = typer.Argument(..., help="Tool name")):
         registry.register(ListDiagnosticsTool(backend))
         registry.register(RunDiagnosticTool(backend))
         registry.register(SummarizeArtifactTool(ArtifactStore(tempfile.mkdtemp())))
+
+        local_backend = LocalBackend()
+        registry.register(RunShellTool(local_backend))
     except Exception:
         pass
 

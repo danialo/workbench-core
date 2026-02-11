@@ -456,21 +456,26 @@ async def launch_tui(
         allow_tools=set(cfg.plugins.allow_tools) if cfg.plugins.allow_tools else None,
     )
 
-    # Demo backend bridge tools
+    # Backend bridge tools
     try:
         from workbench.backends.bridge import (
             ListDiagnosticsTool,
             ResolveTargetTool,
             RunDiagnosticTool,
+            RunShellTool,
             SummarizeArtifactTool,
         )
         from workbench.backends.demo import DemoBackend
+        from workbench.backends.local import LocalBackend
 
         backend = DemoBackend()
         registry.register(ResolveTargetTool(backend))
         registry.register(ListDiagnosticsTool(backend))
         registry.register(RunDiagnosticTool(backend))
         registry.register(SummarizeArtifactTool(artifact_store))
+
+        local_backend = LocalBackend()
+        registry.register(RunShellTool(local_backend))
     except Exception:
         pass
 
