@@ -140,7 +140,8 @@ workbench-core/
 │   │   ├── catalog.py            # Diagnostics catalog
 │   │   ├── demo.py               # Demo backend (fake targets + results)
 │   │   ├── local.py              # LocalBackend — real shell via asyncio subprocess
-│   │   ├── ssh.py                # SSHBackend — stub for future remote execution
+│   │   ├── ssh.py                # SSHBackend — remote execution via asyncssh
+│   │   ├── router.py             # BackendRouter — dispatches by target name
 │   │   └── bridge.py             # Bridge tools (resolve, list, run_diagnostic, run_shell)
 │   ├── prompts/
 │   │   ├── system.py             # System prompt builder
@@ -162,7 +163,7 @@ workbench-core/
 │       ├── app.py                # Typer CLI (chat, sessions, tools, config, tui)
 │       ├── chat.py               # Interactive chat handler
 │       └── output.py             # Rich output formatting + session export
-├── tests/                        # 171 tests
+├── tests/                        # 198 tests
 │   ├── mock_tools.py             # 5 mock tools at different risk/privacy levels
 │   ├── mock_providers.py         # Mock LLM providers for testing
 │   ├── test_validation.py        # Schema validation + unknown key rejection
@@ -257,7 +258,7 @@ The LLM calls these tools autonomously. Policy enforcement (`max_risk`, `confirm
 ## Testing
 
 ```bash
-# Run all 171 tests
+# Run all 198 tests
 pytest tests/ -v
 
 # Run specific test modules
@@ -297,8 +298,7 @@ pip install -e ".[dev]"         # pytest, ruff, coverage
 ## What's Next
 
 - **VS Code Extension** -- `wb serve` + chat panel
-- **SSH Backend** -- Wire `asyncssh` into the existing `SSHBackend` stub
-- **Adapter Pack** -- Separate repo with real backends (K8s, vendor APIs, ticketing)
+- **Adapter Pack** -- Separate repo with vendor backends (K8s, vendor APIs, ticketing) via entry points
 
 * * * * *
 Disclaimer: This project was built with Claude Code.

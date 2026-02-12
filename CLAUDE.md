@@ -10,7 +10,7 @@ workbench-core is a portable operations assistant runtime. It provides an LLM or
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp workbench.yaml.example workbench.yaml   # then edit with your LLM provider
-pytest tests/ -v                            # 171 tests, all should pass
+pytest tests/ -v                            # 198 tests, all should pass
 ```
 
 The `wb` command is installed as an entry point. Config is loaded from:
@@ -82,6 +82,8 @@ pytest tests/ -v          # Run all tests
 
 - `workbench.yaml` must have `policy.max_risk: SHELL` to allow shell tool execution. Default is `READ_ONLY`.
 - The `api_key_env` config field is the **name of the env var**, not the key itself.
-- SSHBackend exists but is a stub — all methods raise `BackendError("not_connected")`.
+- SSHBackend requires `connect()` before use — methods raise `BackendError("not_connected")` until connected.
+- `BackendRouter` dispatches by target name — localhost goes to `LocalBackend`, named hosts to their `SSHBackend`.
+- Plugin tools that declare `backend` in `__init__` get the router injected automatically by `load_plugins()`.
 - TUI logs go to `~/.workbench/tui.log` (append mode).
 - Audit logs go to `~/.workbench/audit.jsonl` with rotation.
