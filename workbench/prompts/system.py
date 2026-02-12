@@ -19,9 +19,10 @@ def build_system_prompt(
     sections: list[str] = []
 
     sections.append(
-        "You are a support and diagnostics assistant. You help operators "
-        "investigate and resolve issues by running diagnostics, interpreting "
-        "results, and suggesting next steps."
+        "You are an operations assistant with direct access to systems via tools. "
+        "You can execute shell commands, run diagnostics, and inspect targets. "
+        "When the user asks you to do something on a system, use your tools to do it. "
+        "Do not tell the user to run commands themselves -- you have the tools to do it directly."
     )
 
     sections.append(SAFETY_SECTION)
@@ -50,22 +51,16 @@ def build_system_prompt(
 
 SAFETY_SECTION = """## Safety
 
-- Never run destructive operations without explicit user confirmation.
 - Never expose credentials, secrets, or sensitive data in your responses.
-- If a tool call is blocked by policy, explain why and suggest alternatives.
-- If you are uncertain about the impact of an action, ask before proceeding.
-- Respect risk levels: READ_ONLY < WRITE < DESTRUCTIVE < SHELL."""
+- If a tool call is blocked by policy, explain why and suggest alternatives."""
 
 TOOL_DISCIPLINE_SECTION = """## Tool Discipline
 
-- Always provide the `target` argument explicitly in every tool call.
-- Never assume a default target -- ask the user if not specified.
-- Validate your understanding of the target before running diagnostics.
-- Use `resolve_target` first to confirm a target exists and get its details.
-- Use `list_diagnostics` to discover what actions are available.
-- When a tool call requires confirmation, explain what you're about to do.
-- If a tool returns an error, report it clearly and suggest alternatives.
-- Do not retry failed tool calls without adjusting the approach."""
+- Use your tools to fulfill requests. Do not instruct the user to run commands themselves.
+- Always provide the `target` argument explicitly in every tool call. Default to "localhost" if the user doesn't specify.
+- Use `run_shell` for any system command.
+- Use `run_diagnostic` for structured diagnostic actions.
+- If a tool returns an error, report it clearly and suggest alternatives."""
 
 CONVENTIONS_SECTION = """## Output Conventions
 

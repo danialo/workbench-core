@@ -22,14 +22,21 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Static
 
-# Debug logging — writes to ~/.workbench/tui.log
+# Debug logging — writes to ~/.workbench/tui.log (append mode, flushed)
 _log_dir = Path.home() / ".workbench"
 _log_dir.mkdir(parents=True, exist_ok=True)
-_log = logging.getLogger("workbench.tui")
-_log.setLevel(logging.DEBUG)
-_fh = logging.FileHandler(_log_dir / "tui.log", mode="w")
+_log_path = _log_dir / "tui.log"
+# Truncate if over 1MB to avoid unbounded growth
+if _log_path.exists() and _log_path.stat().st_size > 1_000_000:
+    _log_path.write_text("")
+_fh = logging.FileHandler(_log_path, mode="a")
 _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-_log.addHandler(_fh)
+# Capture all workbench.* loggers
+_root_wb = logging.getLogger("workbench")
+_root_wb.setLevel(logging.DEBUG)
+_root_wb.addHandler(_fh)
+_log = logging.getLogger("workbench.tui")
+_log.info("====== NEW TUI SESSION ======")
 
 from workbench.llm.types import ToolCall
 from workbench.tui.context_menu import ContextMenu, MenuItem
@@ -131,6 +138,9 @@ class WorkbenchApp(App):
         Binding("ctrl+w", "close_window", "Close Win", priority=True),
         Binding("ctrl+l", "clear_chat", "Clear Chat", priority=True),
         Binding("ctrl+t", "open_tools", "Tools", priority=True),
+        Binding("ctrl+y", "copy_response", "Copy Last", priority=True),
+        Binding("ctrl+s", "save_chat", "Save", priority=True),
+        Binding("f2", "copy_text", "Copy Sel", priority=True),
         Binding("f5", "cascade", "Cascade"),
         Binding("f6", "tile_grid", "Tile Grid"),
         Binding("f7", "cycle_windows", "Next Win"),
@@ -309,6 +319,45 @@ class WorkbenchApp(App):
                 content.clear_chat()
             except Exception:
                 pass
+
+    def action_copy_response(self) -> None:
+        """Copy last assistant response (Ctrl+Y)."""
+        _log.info("action_copy_response")
+        wm = self._get_wm()
+        if wm.active_window:
+            try:
+                content = wm.active_window.query_one(ChatWindowContent)
+                if content._last_response:
+                    # Write to file
+                    from pathlib import Path
+                    copy_file = Path.home() / ".workbench" / "last_response.txt"
+                    copy_file.parent.mkdir(parents=True, exist_ok=True)
+                    copy_file.write_text(content._last_response)
+                    # OSC 52 clipboard (works over SSH if terminal supports it)
+                    import base64
+                    encoded = base64.b64encode(content._last_response.encode()).decode()
+                    self._driver.write(f"\x1b]52;c;{encoded}\x07")
+                    log = content.query_one("#chat-log")
+                    log.write(f"[green]Copied to clipboard + {copy_file}[/green]")
+                    _log.info("Response copied (%d chars)", len(content._last_response))
+            except Exception as e:
+                _log.exception("copy_response failed: %s", e)
+
+    def action_save_chat(self) -> None:
+        """Save full chat history (Ctrl+S)."""
+        _log.info("action_save_chat")
+        wm = self._get_wm()
+        if wm.active_window:
+            try:
+                content = wm.active_window.query_one(ChatWindowContent)
+                content._save_chat(str(Path.home() / ".workbench" / "chat_log.txt"))
+            except Exception as e:
+                _log.exception("save_chat failed: %s", e)
+
+    def action_copy_text(self) -> None:
+        """Copy selected text to clipboard (F2)."""
+        _log.info("action_copy_text")
+        self.screen.action_copy_text()
 
     def action_open_tools(self) -> None:
         _log.info("action_open_tools")
@@ -542,6 +591,15 @@ async def launch_tui(
     )
 
     tui_app.orchestrator = orchestrator
+
+    # Startup diagnostics
+    tool_names = [t.name for t in registry.list()]
+    _log.info("Registered tools: %s", tool_names)
+    _log.info("Active LLM provider: %s", router.active_name)
+    _log.info("LLM model: %s", cfg.llm.model)
+    _log.info("API key env var: %s, loaded: %s", cfg.llm.api_key_env, bool(api_key and api_key != "not-needed"))
+    _log.info("Policy max_risk: %s, confirm_shell: %s", cfg.policy.max_risk, cfg.policy.confirm_shell)
+    _log.info("System prompt length: %d chars", len(system_prompt))
 
     try:
         await tui_app.run_async()

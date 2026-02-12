@@ -150,6 +150,14 @@ class OpenAICompatProvider(Provider):
         }
         if tools:
             body["tools"] = tools
+            body["tool_choice"] = "auto"
+        logger.info(
+            "REQUEST: model=%s tools=%d messages=%d api_key=%s...",
+            self._model,
+            len(tools) if tools else 0,
+            len(wire_messages),
+            self._api_key[:12] if self._api_key else "(none)",
+        )
         return body
 
     # ------------------------------------------------------------------

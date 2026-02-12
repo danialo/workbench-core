@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any, Callable
 
 from rich.markup import escape
@@ -12,6 +14,10 @@ from textual.widgets import Input, RichLog
 
 from workbench.tui.context_menu import MenuItem
 from workbench.tui.menu_bar import MenuAction, MenuSection
+
+_log = logging.getLogger("workbench.tui.chat")
+
+_COPY_FILE = Path.home() / ".workbench" / "last_response.txt"
 
 
 class ChatWindowContent(Vertical):
@@ -49,6 +55,8 @@ class ChatWindowContent(Vertical):
         self.session = session
         self.router = router
         self.registry = registry
+        self._last_response: str = ""
+        self._chat_history: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="chat-log", wrap=True, highlight=True, markup=True)
@@ -75,6 +83,7 @@ class ChatWindowContent(Vertical):
 
         log = self.query_one("#chat-log", RichLog)
         log.write(f"[bold blue]you>[/bold blue] {escape(user_input)}")
+        self._chat_history.append(f"you> {user_input}")
 
         if self.orchestrator:
             self._run_orchestrator(user_input)
@@ -83,26 +92,51 @@ class ChatWindowContent(Vertical):
 
     @work(thread=False)
     async def _run_orchestrator(self, user_input: str) -> None:
+        """Run the orchestrator loop as an asyncio task on Textual's event loop.
+
+        thread=False is critical: the session store uses asyncio.Lock bound to
+        this loop, and aiosqlite connections are loop-bound.  Using thread=True
+        would create a separate event loop and deadlock on the first DB write.
+        """
+        _log.info("orchestrator start: %s", user_input[:80])
         log = self.query_one("#chat-log", RichLog)
-        log.write("[dim]assistant>[/dim] ", shrink=False)
 
         content_parts: list[str] = []
+        chunk_count = 0
         try:
             async for chunk in self.orchestrator.run(user_input):
+                chunk_count += 1
                 if chunk.delta:
-                    if chunk.delta.startswith("\n[Tool:"):
-                        pass  # Tool results go to events window
-                    else:
-                        content_parts.append(chunk.delta)
+                    _log.debug(
+                        "chunk %d: delta=%r done=%s",
+                        chunk_count,
+                        chunk.delta[:120],
+                        chunk.done,
+                    )
+                    content_parts.append(chunk.delta)
                 if chunk.done:
+                    _log.info("chunk %d: DONE", chunk_count)
                     break
         except Exception as e:
-            log.write(f"[red]Error: {e}[/red]")
+            _log.exception("orchestrator error: %s", e)
+            log.write(f"[red]Error: {escape(str(e))}[/red]")
             return
 
+        _log.info(
+            "orchestrator finished: %d chunks, %d content parts",
+            chunk_count,
+            len(content_parts),
+        )
+
         if content_parts:
-            log.write("".join(content_parts))
-        log.write("")
+            full_text = "".join(content_parts)
+            self._last_response = full_text
+            self._chat_history.append(f"assistant> {full_text}")
+            log.write(f"[dim]assistant>[/dim]\n{escape(full_text)}")
+        else:
+            log.write(
+                "[dim]assistant>[/dim] [yellow](no response)[/yellow]"
+            )
 
     async def _handle_command(self, command: str) -> None:
         log = self.query_one("#chat-log", RichLog)
@@ -114,8 +148,15 @@ class ChatWindowContent(Vertical):
                 "[bold]Commands:[/bold]\n"
                 "  /help     - Show this help\n"
                 "  /clear    - Clear chat\n"
+                "  /copy     - Copy last response to file + clipboard\n"
+                "  /save     - Save full chat to file\n"
                 "  /switch   - Switch LLM provider\n"
             )
+        elif cmd == "/copy":
+            self._copy_last_response()
+        elif cmd == "/save":
+            save_path = parts[1].strip() if len(parts) > 1 else str(Path.home() / ".workbench" / "chat_log.txt")
+            self._save_chat(save_path)
         elif cmd == "/clear":
             self.clear_chat()
         elif cmd == "/switch":
@@ -135,6 +176,38 @@ class ChatWindowContent(Vertical):
                     log.write(f"  [red]{e}[/red]")
         else:
             log.write(f"[red]Unknown command: {cmd}[/red]")
+
+    def _copy_last_response(self) -> None:
+        """Copy last assistant response to file and attempt clipboard."""
+        log = self.query_one("#chat-log", RichLog)
+        if not self._last_response:
+            log.write("[yellow]No response to copy.[/yellow]")
+            return
+        _COPY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _COPY_FILE.write_text(self._last_response)
+        log.write(f"[green]Response saved to {_COPY_FILE}[/green]")
+        try:
+            import subprocess
+            subprocess.run(
+                ["xclip", "-selection", "clipboard"],
+                input=self._last_response.encode(),
+                timeout=2,
+                capture_output=True,
+            )
+            log.write("[green]Copied to clipboard.[/green]")
+        except Exception:
+            pass
+
+    def _save_chat(self, path: str) -> None:
+        """Save full chat history to a file."""
+        log = self.query_one("#chat-log", RichLog)
+        if not self._chat_history:
+            log.write("[yellow]No chat history to save.[/yellow]")
+            return
+        save_path = Path(path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_text("\n\n".join(self._chat_history) + "\n")
+        log.write(f"[green]Chat saved to {save_path}[/green]")
 
     def clear_chat(self) -> None:
         log = self.query_one("#chat-log", RichLog)
