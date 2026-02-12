@@ -1,0 +1,57 @@
+# Workbench configuration
+# Copy to workbench.yaml and edit for your environment.
+# Config is also read from: ~/.config/workbench/config.yaml, ~/.workbench/config.yaml
+# All values can be overridden via env vars (see config.py _ENV_MAP).
+
+llm:
+  name: openai                      # Provider name (used for /switch in TUI)
+  model: gpt-4o                     # Model identifier sent to the API
+  api_base: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY       # Env var containing the API key
+  max_context_tokens: 128000
+  max_output_tokens: 4096
+  temperature: 0.0
+  timeout_seconds: 120
+
+policy:
+  max_risk: SHELL                   # Maximum tool risk: READ_ONLY, WRITE, DESTRUCTIVE, SHELL
+  confirm_destructive: true         # Prompt before destructive operations
+  confirm_shell: true               # Prompt before shell commands
+  confirm_write: false              # Prompt before write operations
+  blocked_patterns:                 # Shell commands that are always blocked
+    - "rm\\s+-rf\\s+/"
+    - "mkfs\\."
+    - "dd\\s+if=.+of=/dev/"
+  redaction_patterns: []            # Patterns to redact from output
+  audit_log_path: ~/.workbench/audit.jsonl
+  audit_max_size_mb: 10
+  audit_keep_files: 5
+
+tools:
+  builtin: []
+  disabled: []
+
+plugins:
+  enabled: false
+  allow_distributions: []
+  allow_tools: []
+
+session:
+  history_db: ~/.workbench/history.db
+  max_turns: 200
+  idle_timeout_seconds: 3600
+
+# Named profiles — override any top-level key per environment.
+# Activate with: wb tui --profile production
+# profiles:
+#   production:
+#     policy:
+#       max_risk: READ_ONLY
+#       confirm_shell: true
+#   local:
+#     llm:
+#       api_base: http://localhost:8080/v1
+#       api_key_env: ""
+#     policy:
+#       max_risk: SHELL
+#       confirm_shell: false
