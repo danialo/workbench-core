@@ -499,13 +499,9 @@ async def launch_tui(
 
     # Tool registry
     registry = ToolRegistry()
-    registry.load_plugins(
-        enabled=cfg.plugins.enabled,
-        allow_distributions=set(cfg.plugins.allow_distributions) if cfg.plugins.allow_distributions else None,
-        allow_tools=set(cfg.plugins.allow_tools) if cfg.plugins.allow_tools else None,
-    )
 
     # Backend bridge tools — route through BackendRouter
+    router = None
     try:
         from workbench.backends.bridge import (
             ListDiagnosticsTool,
@@ -546,7 +542,14 @@ async def launch_tui(
         registry.register(SummarizeArtifactTool(artifact_store))
     except Exception:
         _log.exception("Failed to register backend tools")
-        pass
+
+    # Load plugins (after router so plugins can receive the backend)
+    registry.load_plugins(
+        enabled=cfg.plugins.enabled,
+        allow_distributions=set(cfg.plugins.allow_distributions) if cfg.plugins.allow_distributions else None,
+        allow_tools=set(cfg.plugins.allow_tools) if cfg.plugins.allow_tools else None,
+        backend=router,
+    )
 
     # Policy
     risk_map = {r.name: r for r in ToolRisk}

@@ -96,14 +96,10 @@ async def _setup_stack(
 
     # Tool registry
     registry = ToolRegistry()
-    registry.load_plugins(
-        enabled=cfg.plugins.enabled,
-        allow_distributions=set(cfg.plugins.allow_distributions) if cfg.plugins.allow_distributions else None,
-        allow_tools=set(cfg.plugins.allow_tools) if cfg.plugins.allow_tools else None,
-    )
 
     # Backend bridge tools — route through BackendRouter
     _log = logging.getLogger(__name__)
+    router = None
     try:
         from workbench.backends.bridge import (
             ListDiagnosticsTool,
@@ -144,7 +140,14 @@ async def _setup_stack(
         registry.register(SummarizeArtifactTool(artifact_store))
     except Exception:
         _log.exception("Failed to register backend tools")
-        pass
+
+    # Load plugins (after router so plugins can receive the backend)
+    registry.load_plugins(
+        enabled=cfg.plugins.enabled,
+        allow_distributions=set(cfg.plugins.allow_distributions) if cfg.plugins.allow_distributions else None,
+        allow_tools=set(cfg.plugins.allow_tools) if cfg.plugins.allow_tools else None,
+        backend=router,
+    )
 
     # Policy
     risk_map = {r.name: r for r in ToolRisk}

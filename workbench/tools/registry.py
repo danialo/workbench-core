@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from importlib.metadata import entry_points
 
 from workbench.tools.base import Tool, ToolRisk
@@ -42,7 +43,14 @@ class ToolRegistry:
         group: str = "workbench.tools",
         allow_distributions: set[str] | None = None,
         allow_tools: set[str] | None = None,
+        backend: object | None = None,
     ) -> int:
+        """Load tools from entry points, optionally injecting dependencies.
+
+        If a tool class's __init__ accepts a ``backend`` parameter and one
+        is provided here, it will be injected automatically.  Tools that
+        don't declare the parameter are constructed with no arguments.
+        """
         if not enabled:
             return 0
         loaded = 0
@@ -54,6 +62,11 @@ class ToolRegistry:
             if allow_tools and ep.name not in allow_tools:
                 continue
             tool_cls = ep.load()
-            self.register(tool_cls())
+            kwargs: dict = {}
+            if backend is not None:
+                sig = inspect.signature(tool_cls)
+                if "backend" in sig.parameters:
+                    kwargs["backend"] = backend
+            self.register(tool_cls(**kwargs))
             loaded += 1
         return loaded

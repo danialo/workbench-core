@@ -133,6 +133,11 @@ class TestToolRegistry:
         reg.load_plugins(enabled=False)
         assert len(reg.list()) == 0
 
+    def test_load_plugins_disabled_with_backend_returns_zero(self):
+        reg = ToolRegistry()
+        count = reg.load_plugins(enabled=False, backend=object())
+        assert count == 0
+
     def test_empty_registry_list(self):
         reg = ToolRegistry()
         assert reg.list() == []
