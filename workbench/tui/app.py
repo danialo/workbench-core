@@ -505,7 +505,7 @@ async def launch_tui(
         allow_tools=set(cfg.plugins.allow_tools) if cfg.plugins.allow_tools else None,
     )
 
-    # Backend bridge tools
+    # Backend bridge tools — route through BackendRouter
     try:
         from workbench.backends.bridge import (
             ListDiagnosticsTool,
@@ -514,18 +514,38 @@ async def launch_tui(
             RunShellTool,
             SummarizeArtifactTool,
         )
-        from workbench.backends.demo import DemoBackend
         from workbench.backends.local import LocalBackend
+        from workbench.backends.router import BackendRouter
+        from workbench.backends.ssh import SSHBackend
 
-        backend = DemoBackend()
-        registry.register(ResolveTargetTool(backend))
-        registry.register(ListDiagnosticsTool(backend))
-        registry.register(RunDiagnosticTool(backend))
+        router = BackendRouter()
+        router.set_default(LocalBackend())
+
+        # Connect SSH backends from config
+        for host_cfg in cfg.backends.ssh_hosts:
+            ssh = SSHBackend(
+                host=host_cfg["host"],
+                port=host_cfg.get("port", 22),
+                username=host_cfg.get("username", "root"),
+                key_path=host_cfg.get("key_path"),
+                password=os.environ.get(host_cfg.get("password_env", "")) if host_cfg.get("password_env") else None,
+                timeout=host_cfg.get("timeout", 10),
+            )
+            try:
+                await ssh.connect()
+                router.register(host_cfg["name"], ssh)
+                router.register(host_cfg["host"], ssh)
+                _log.info("SSH connected: %s (%s)", host_cfg["name"], host_cfg["host"])
+            except Exception as e:
+                _log.warning("SSH connect failed for %s: %s", host_cfg.get("name", host_cfg["host"]), e)
+
+        registry.register(ResolveTargetTool(router))
+        registry.register(ListDiagnosticsTool(router))
+        registry.register(RunDiagnosticTool(router))
+        registry.register(RunShellTool(router))
         registry.register(SummarizeArtifactTool(artifact_store))
-
-        local_backend = LocalBackend()
-        registry.register(RunShellTool(local_backend))
     except Exception:
+        _log.exception("Failed to register backend tools")
         pass
 
     # Policy

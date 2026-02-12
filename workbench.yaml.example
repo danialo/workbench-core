@@ -41,6 +41,22 @@ session:
   max_turns: 200
   idle_timeout_seconds: 3600
 
+# SSH backends — connect to remote hosts for tool execution.
+# The LLM uses the 'name' as the target in tool calls (e.g., target: "prod-01").
+# Localhost is always available as the default backend.
+# backends:
+#   ssh_hosts:
+#     - name: prod-01                   # Target name used in tool calls
+#       host: 192.168.1.10
+#       port: 22
+#       username: admin
+#       key_path: ~/.ssh/id_ed25519
+#       timeout: 10
+#     - name: staging
+#       host: 10.0.0.5
+#       username: deploy
+#       password_env: STAGING_SSH_PASS   # Env var containing the password
+
 # Named profiles — override any top-level key per environment.
 # Activate with: wb tui --profile production
 # profiles:

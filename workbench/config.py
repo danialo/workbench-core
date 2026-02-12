@@ -65,6 +65,11 @@ class SessionConfig:
     idle_timeout_seconds: int = 3600
 
 
+@dataclass
+class BackendsConfig:
+    ssh_hosts: list[dict] = field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Root config
 # ---------------------------------------------------------------------------
@@ -76,6 +81,7 @@ class WorkbenchConfig:
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
+    backends: BackendsConfig = field(default_factory=BackendsConfig)
     profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # ----- per-session overrides (applied last) ----
@@ -211,6 +217,7 @@ def load_config(
         tools=_build_section(ToolsConfig, raw.get("tools", {})),
         plugins=_build_section(PluginsConfig, raw.get("plugins", {})),
         session=_build_section(SessionConfig, raw.get("session", {})),
+        backends=_build_section(BackendsConfig, raw.get("backends", {})),
         profiles=raw.get("profiles", {}),
     )
 

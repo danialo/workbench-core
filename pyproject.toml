@@ -11,6 +11,7 @@ license = {text = "MIT"}
 dependencies = [
     "jsonschema>=4.20",
     "aiosqlite>=0.19",
+    "asyncssh>=2.14",
     "httpx>=0.25",
     "rich>=13.0",
     "typer>=0.9",
