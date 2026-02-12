@@ -26,14 +26,22 @@ pip install -e ".[dev]"
 pytest tests/ -v
 
 # Try the CLI
-python -m workbench.cli.app version
-python -m workbench.cli.app tools list
-python -m workbench.cli.app config show
+wb version
+wb tools list
+wb config show
 ```
 
-### Start a chat session
+### Configuration
 
-The chat command needs an LLM provider. Create `workbench.yaml` in the repo root:
+Copy the example config and edit for your environment:
+
+```bash
+cp workbench.yaml.example workbench.yaml
+```
+
+Config is also loaded from `~/.config/workbench/config.yaml` and `~/.workbench/config.yaml`. See `workbench.yaml.example` for all options with comments.
+
+Example for a local model:
 
 ```yaml
 llm:
@@ -49,29 +57,29 @@ policy:
   confirm_shell: true
 ```
 
-Then:
-
-```bash
-python -m workbench.cli.app chat
-```
-
-Inside chat you get inline commands: `/tools`, `/history`, `/switch <provider>`, `/quit`.
-
-### Using a remote provider
+Example for a remote provider (OpenRouter, OpenAI, Anthropic, etc.):
 
 ```yaml
 llm:
-  name: anthropic
-  model: claude-sonnet-4-20250514
-  api_key_env: ANTHROPIC_API_KEY
+  name: openrouter
+  model: qwen/qwen3-coder-next
+  api_base: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
   timeout_seconds: 120
+
+policy:
+  max_risk: SHELL
 ```
 
-Set `ANTHROPIC_API_KEY` in your environment and install the optional SDK:
+Set your API key in the environment, then start a session:
 
 ```bash
-pip install -e ".[remote_sdk]"
+export OPENROUTER_API_KEY=sk-or-...
+wb chat          # CLI chat
+wb tui           # Windowed TUI (recommended)
 ```
+
+Inside chat you get inline commands: `/tools`, `/history`, `/switch <provider>`, `/quit`.
 
 ## Architecture
 
@@ -131,16 +139,30 @@ workbench-core/
 │   │   ├── base.py               # ExecutionBackend ABC
 │   │   ├── catalog.py            # Diagnostics catalog
 │   │   ├── demo.py               # Demo backend (fake targets + results)
-│   │   └── bridge.py             # Bridge tools (resolve, list, run, summarize)
+│   │   ├── local.py              # LocalBackend — real shell via asyncio subprocess
+│   │   ├── ssh.py                # SSHBackend — stub for future remote execution
+│   │   └── bridge.py             # Bridge tools (resolve, list, run_diagnostic, run_shell)
 │   ├── prompts/
 │   │   ├── system.py             # System prompt builder
 │   │   ├── tool_discipline.py    # Tool usage instructions
 │   │   └── conventions.py        # Output formatting conventions
+│   ├── tui/
+│   │   ├── app.py                # Textual app — windowed desktop with hotkeys
+│   │   ├── window.py             # Draggable window widget (min/max/restore)
+│   │   ├── window_manager.py     # Layout: cascade, tile, snap-to-grid
+│   │   ├── menu_bar.py           # Top menu bar
+│   │   ├── context_menu.py       # Right-click context menus
+│   │   └── windows/
+│   │       ├── chat_window.py    # LLM chat with streaming + tool calling
+│   │       ├── tools_window.py   # Tool registry browser
+│   │       ├── events_window.py  # Session event log viewer
+│   │       ├── config_window.py  # Live config viewer
+│   │       └── artifacts_window.py  # Artifact store browser
 │   └── cli/
-│       ├── app.py                # Typer CLI (chat, sessions, tools, config)
+│       ├── app.py                # Typer CLI (chat, sessions, tools, config, tui)
 │       ├── chat.py               # Interactive chat handler
 │       └── output.py             # Rich output formatting + session export
-├── tests/                        # 140 tests
+├── tests/                        # 171 tests
 │   ├── mock_tools.py             # 5 mock tools at different risk/privacy levels
 │   ├── mock_providers.py         # Mock LLM providers for testing
 │   ├── test_validation.py        # Schema validation + unknown key rejection
@@ -151,7 +173,9 @@ workbench-core/
 │   ├── test_session.py           # Events, store, context packing, session mgr
 │   ├── test_artifacts.py         # Content-addressing, permissions, traversal
 │   ├── test_orchestrator.py      # Full lifecycle, error paths, max turns
+│   ├── test_backends.py          # LocalBackend + SSHBackend tests
 │   └── test_e2e.py               # End-to-end with demo backend
+├── workbench.yaml.example        # Config template — copy to workbench.yaml
 └── pyproject.toml
 ```
 
@@ -170,7 +194,8 @@ workbench-core/
 
 | Command | Description |
 |---------|-------------|
-| `wb chat` | Interactive chat with tool calling |
+| `wb tui` | **Windowed TUI** — recommended interface |
+| `wb chat` | Interactive CLI chat with tool calling |
 | `wb chat --provider NAME` | Chat using a specific LLM provider |
 | `wb chat --profile NAME` | Chat using a config profile |
 | `wb chat --session ID` | Resume an existing session |
@@ -185,16 +210,61 @@ workbench-core/
 | `wb config validate` | Validate config and show issues |
 | `wb version` | Show version |
 
+## TUI
+
+`wb tui` launches a desktop-style windowed interface built on Textual. Each panel (chat, tools, events, config, artifacts) is an independent window with minimize/maximize/restore.
+
+### TUI Hotkeys
+
+| Key | Action |
+|-----|--------|
+| Ctrl+N | New chat window |
+| Ctrl+W | Close current window |
+| Ctrl+L | Clear chat |
+| Ctrl+T | Open tools window |
+| Ctrl+Y | Copy last LLM response to `~/.workbench/last_response.txt` |
+| Ctrl+S | Save full chat history to file |
+| F2 | Copy selected text |
+| F5 | Cascade windows |
+| F6 | Tile grid |
+| F7 | Cycle to next window |
+| F10 | Context menu |
+
+### TUI Chat Commands
+
+| Command | Description |
+|---------|-------------|
+| `/tools` | List registered tools |
+| `/history` | Show session history |
+| `/copy` | Save last response to file |
+| `/save [path]` | Save full chat to file |
+| `/quit` | Exit |
+
+### Registered Tools
+
+The TUI and CLI register these tools at startup:
+
+| Tool | Risk | Description |
+|------|------|-------------|
+| `resolve_target` | READ_ONLY | Resolve and describe a target system |
+| `list_diagnostics` | READ_ONLY | List available diagnostic actions |
+| `run_diagnostic` | DESTRUCTIVE | Run a structured diagnostic action |
+| `summarize_result` | READ_ONLY | Summarize a previous tool result |
+| `run_shell` | SHELL | Execute a shell command on a target |
+
+The LLM calls these tools autonomously. Policy enforcement (`max_risk`, `confirm_shell`, `blocked_patterns`) gates every call.
+
 ## Testing
 
 ```bash
-# Run all 140 tests
+# Run all 171 tests
 pytest tests/ -v
 
 # Run specific test modules
 pytest tests/test_orchestrator.py -v    # Orchestrator lifecycle
 pytest tests/test_e2e.py -v             # End-to-end with demo backend
 pytest tests/test_policy.py -v          # Policy enforcement + audit
+pytest tests/test_backends.py -v        # Local + SSH backends
 
 # With coverage
 pytest tests/ --cov=workbench --cov-report=term-missing
@@ -226,9 +296,9 @@ pip install -e ".[dev]"         # pytest, ruff, coverage
 
 ## What's Next
 
-- **TUI** (Phase 7) -- Textual split-pane app
-- **VS Code Extension** (Phase 8) -- `wb serve` + chat panel
-- **Adapter Pack** -- Separate repo with real backends (SSH, K8s, vendor APIs)
+- **VS Code Extension** -- `wb serve` + chat panel
+- **SSH Backend** -- Wire `asyncssh` into the existing `SSHBackend` stub
+- **Adapter Pack** -- Separate repo with real backends (K8s, vendor APIs, ticketing)
 
 * * * * *
-Disclaimer: This project was vibe coded with Claude Code.
+Disclaimer: This project was built with Claude Code.
