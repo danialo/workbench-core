@@ -65,29 +65,31 @@ class _TitleBar(Container):
         layout: horizontal;
         width: 1fr;
         height: 1;
-        background: $accent;
-        color: $text;
+        background: #e67e00;
+        color: #e8e8e8;
     }
     _TitleBar > .window-title-label {
         width: 1fr;
         height: 1;
         padding: 0 1;
         text-style: bold;
+        color: #ffffff;
     }
     _TitleBar > .window-btn {
         width: 4;
         height: 1;
         min-width: 4;
         text-align: center;
-        background: $accent;
-        color: $text;
+        background: #e67e00;
+        color: #e8e8e8;
     }
     _TitleBar > .window-btn:hover {
-        background: $accent-lighten-2;
+        background: #ff8c00;
+        color: #ffffff;
     }
     _TitleBar > .window-btn-close:hover {
-        background: $error;
-        color: $text;
+        background: #ef4444;
+        color: #ffffff;
     }
     """
 
@@ -128,10 +130,10 @@ class _ResizeGrip(Static):
         width: 2;
         height: 1;
         content-align: right bottom;
-        color: $text-muted;
+        color: #a0a0a0;
     }
     _ResizeGrip:hover {
-        color: $accent;
+        color: #ff8c00;
     }
     """
 
@@ -174,16 +176,16 @@ class Window(Container):
         position: absolute;
         width: 60;
         height: 20;
-        border: solid $secondary;
-        background: $surface;
+        border: solid #333333;
+        background: #1a1a1a;
         overflow: hidden;
         layer: windows;
     }
     Window:focus-within {
-        border: thick $primary;
+        border: thick #ff8c00;
     }
     Window.-maximized {
-        border: thick $primary;
+        border: thick #ff8c00;
     }
     Window.-minimized {
         display: none;

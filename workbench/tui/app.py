@@ -71,20 +71,21 @@ class ConfirmToolScreen(ModalScreen[bool]):
         width: 70;
         height: auto;
         max-height: 24;
-        border: thick $accent;
-        background: $surface;
+        border: thick #ff8c00;
+        background: #252525;
         padding: 1 2;
     }
     #confirm-title {
         text-style: bold;
-        color: $warning;
+        color: #ff8c00;
         margin-bottom: 1;
     }
     #confirm-details {
         margin-bottom: 1;
+        color: #e8e8e8;
     }
     #confirm-hint {
-        color: $text-muted;
+        color: #a0a0a0;
         text-style: italic;
     }
     """
@@ -150,6 +151,17 @@ class WorkbenchApp(App):
     DEFAULT_CSS = """
     Screen {
         layers: default windows context-menu menu-dropdown;
+        background: #0d0d0d;
+    }
+
+    Header {
+        background: #141414;
+        color: #e8e8e8;
+    }
+
+    Footer {
+        background: #141414;
+        color: #a0a0a0;
     }
     """
 

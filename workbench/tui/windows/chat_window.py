@@ -31,14 +31,24 @@ class ChatWindowContent(Vertical):
     ChatWindowContent {
         width: 1fr;
         height: 1fr;
+        background: #1a1a1a;
     }
     ChatWindowContent > #chat-log {
         height: 1fr;
+        background: #1a1a1a;
+        border: solid #333333;
+        scrollbar-background: #141414;
+        scrollbar-color: #ff8c00;
     }
     ChatWindowContent > #chat-input {
         dock: bottom;
         height: 3;
         padding: 0 1;
+        border: solid #ff8c00;
+        background: #252525;
+    }
+    ChatWindowContent > #chat-input:focus {
+        border: thick #ff8c00;
     }
     """
 
@@ -64,8 +74,8 @@ class ChatWindowContent(Vertical):
 
     def on_mount(self) -> None:
         log = self.query_one("#chat-log", RichLog)
-        log.write("[bold]Chat[/bold] - Type a message to begin.")
-        log.write("[dim]Use /help for commands.[/dim]\n")
+        log.write("[bold #ff8c00]Workbench Chat[/bold #ff8c00]")
+        log.write("[dim]Type a message to begin. Use /help for commands.[/dim]\n")
         self.query_one("#chat-input", Input).focus()
 
     @on(Input.Submitted, "#chat-input")
@@ -82,7 +92,7 @@ class ChatWindowContent(Vertical):
             return
 
         log = self.query_one("#chat-log", RichLog)
-        log.write(f"[bold blue]you>[/bold blue] {escape(user_input)}")
+        log.write(f"\n[bold #ff8c00]You:[/bold #ff8c00] {escape(user_input)}")
         self._chat_history.append(f"you> {user_input}")
 
         if self.orchestrator:
@@ -132,10 +142,10 @@ class ChatWindowContent(Vertical):
             full_text = "".join(content_parts)
             self._last_response = full_text
             self._chat_history.append(f"assistant> {full_text}")
-            log.write(f"[dim]assistant>[/dim]\n{escape(full_text)}")
+            log.write(f"\n[bold #10b981]Assistant:[/bold #10b981]\n{escape(full_text)}\n")
         else:
             log.write(
-                "[dim]assistant>[/dim] [yellow](no response)[/yellow]"
+                "\n[bold #10b981]Assistant:[/bold #10b981] [yellow](no response)[/yellow]"
             )
 
     async def _handle_command(self, command: str) -> None:

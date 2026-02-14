@@ -47,12 +47,14 @@ class _TaskbarItem(Static):
         width: auto;
         height: 1;
         padding: 0 2;
-        background: $accent-darken-1;
-        color: $text;
+        background: #cc7000;
+        color: #e8e8e8;
         margin: 0 1;
+        border: solid #333333;
     }
     _TaskbarItem:hover {
-        background: $accent;
+        background: #ff8c00;
+        color: #ffffff;
     }
     """
 
@@ -72,9 +74,10 @@ class Taskbar(Container):
     Taskbar {
         dock: bottom;
         height: 1;
-        background: $accent-darken-2;
+        background: #141414;
         layout: horizontal;
         display: none;
+        border-top: solid #333333;
     }
     Taskbar.--visible {
         display: block;

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Antigravity Agent Manager — manage AI agent workspaces, conversations, and inbox">
+    <title>Agent Manager — Antigravity</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/index.css">
+</head>
+<body>
+    <!-- TOP BAR -->
+    <header class="top-bar" id="topBar">
+        <div class="top-bar__left">
+            <span class="top-bar__brand">Antigravity</span>
+            <button class="top-bar__menu-item" id="menuFile">File</button>
+            <button class="top-bar__menu-item" id="menuEdit">Edit</button>
+            <button class="top-bar__menu-item" id="menuView">View</button>
+        </div>
+        <div class="top-bar__center">
+            <span class="top-bar__title">Agent Manager</span>
+        </div>
+        <div class="top-bar__right">
+            <button class="top-bar__action" id="btnOpenEditor">Open Editor</button>
+            <button class="top-bar__icon-btn" id="btnSettings" title="Settings">⚙</button>
+            <div class="top-bar__window-controls">
+                <button class="wc wc--minimize" title="Minimize">—</button>
+                <button class="wc wc--maximize" title="Maximize">□</button>
+                <button class="wc wc--close" title="Close">✕</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN LAYOUT -->
+    <div class="layout">
+        <!-- SIDEBAR -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar__top">
+                <button class="sidebar__inbox-btn" id="btnInbox">
+                    <span class="sidebar__inbox-icon">📥</span>
+                    <span>Inbox</span>
+                    <span class="sidebar__inbox-badge" id="inboxBadge" style="display:none">0</span>
+                    <button class="sidebar__icon-btn sidebar__inbox-panel-btn" id="btnInboxPanel" title="Panel">⊞</button>
+                </button>
+                <button class="sidebar__start-btn" id="btnStartConversation">
+                    <span>+ Start conversation</span>
+                </button>
+            </div>
+
+            <div class="sidebar__section" id="workspacesSection">
+                <div class="sidebar__section-header">
+                    <span class="sidebar__section-title">Workspaces</span>
+                </div>
+                <div class="sidebar__workspace-list" id="workspaceList"></div>
+                <button class="sidebar__add-btn" id="btnOpenWorkspace">
+                    <span>+ Open Workspace</span>
+                </button>
+            </div>
+
+            <div class="sidebar__section" id="playgroundSection">
+                <div class="sidebar__section-header">
+                    <span class="sidebar__section-title sidebar__section-title--playground">Playground</span>
+                    <span class="sidebar__section-icon">☁</span>
+                    <button class="sidebar__icon-btn sidebar__section-add" id="btnNewPlayground" title="New">+</button>
+                </div>
+                <div class="sidebar__conversation-list" id="playgroundList"></div>
+            </div>
+
+            <nav class="sidebar__bottom-nav">
+                <button class="sidebar__nav-item" id="navKnowledge">📚 <span>Knowledge</span></button>
+                <button class="sidebar__nav-item" id="navBrowser">🌐 <span>Browser</span></button>
+                <button class="sidebar__nav-item" id="navSettings">⚙ <span>Settings</span></button>
+                <button class="sidebar__nav-item" id="navFeedback">💬 <span>Provide Feedback</span></button>
+            </nav>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="main" id="mainContent">
+            <!-- Conversation View -->
+            <div class="conversation-view" id="conversationView">
+                <div class="conversation-view__header">
+                    <h1 class="conversation-view__title">
+                        Start new conversation in
+                        <span class="conversation-view__breadcrumb">▸ <span id="currentWorkspace">Playground</span></span>
+                    </h1>
+                    <button class="conversation-view__inbox-link" id="btnViewInbox">📥 View Inbox</button>
+                </div>
+
+                <div class="conversation-view__messages" id="messagesContainer"></div>
+
+                <div class="conversation-view__input-area">
+                    <div class="input-box" id="inputBox">
+                        <textarea class="input-box__textarea" id="messageInput" placeholder="Ask anything, @ for context" rows="1"></textarea>
+                        <div class="input-box__controls">
+                            <div class="input-box__left-controls">
+                                <button class="input-box__control-btn" id="btnAttach" title="Attach">+</button>
+                                <div class="input-box__selector">
+                                    <span class="input-box__selector-label">▸</span>
+                                    <select class="input-box__mode-select" id="modeSelect">
+                                        <option value="planning">Planning</option>
+                                        <option value="execution">Execution</option>
+                                        <option value="diagnostics">Diagnostics</option>
+                                    </select>
+                                </div>
+                                <div class="input-box__selector">
+                                    <span class="input-box__selector-label">▸</span>
+                                    <select class="input-box__model-select" id="modelSelect">
+                                        <option value="default">Gemini 3 Flash</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="input-box__right-controls">
+                                <button class="input-box__mic-btn" id="btnMic" title="Voice">🎤</button>
+                                <button class="input-box__send-btn" id="btnSend" title="Send">➤</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="conversation-view__about" id="aboutSection">
+                    <h3 class="about__title">About Playground</h3>
+                    <p class="about__text">
+                        Playgrounds are independent workspaces perfect for quick prototypes or following your curiosity.
+                        Move to a <a href="#" class="about__link" id="linkDedicatedWorkspace">dedicated workspace</a>
+                        to <a href="#" class="about__link" id="linkContinue">continue exploring with multiple conversations</a>.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Inbox View -->
+            <div class="inbox-view" id="inboxView" style="display:none">
+                <div class="inbox-view__header">
+                    <h1 class="inbox-view__title">Inbox</h1>
+                    <button class="inbox-view__back-btn" id="btnBackToConversation">← Back to conversations</button>
+                </div>
+                <div class="inbox-view__search">
+                    <input type="text" class="inbox-view__search-input" id="inboxSearch" placeholder="Search inbox...">
+                </div>
+                <div class="inbox-view__list" id="inboxList">
+                    <div class="inbox-view__empty" id="inboxEmpty">
+                        <p>📥 No items in your inbox</p>
+                        <p class="inbox-view__empty-sub">Completed agent conversations will appear here</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -439,6 +439,114 @@ def tui(
 
 
 @app.command()
+def web(
+    host: str = typer.Option("127.0.0.1", help="Host to bind to"),
+    port: int = typer.Option(8765, help="Port to listen on"),
+    provider: Optional[str] = typer.Option(None, help="LLM provider name"),
+    profile: Optional[str] = typer.Option(None, help="Config profile name"),
+    auth_token: Optional[str] = typer.Option(None, envvar="WB_AUTH_TOKEN", help="Auth token (or set WB_AUTH_TOKEN)"),
+):
+    """Launch the Agent Manager web interface."""
+    import uvicorn
+
+    async def _setup_web():
+        from workbench.llm.router import LLMRouter
+        from workbench.llm.token_counter import TokenCounter
+        from workbench.orchestrator.core import Orchestrator
+        from workbench.prompts.system import build_system_prompt
+        from workbench.session.artifacts import ArtifactStore
+        from workbench.session.session import Session
+        from workbench.session.store import SessionStore
+        from workbench.tools.base import ToolRisk
+        from workbench.tools.policy import PolicyEngine
+        from workbench.tools.registry import ToolRegistry
+        from workbench.web.server import create_app
+
+        config_path = _get_config_path()
+        cfg = load_config(config_path, profile=profile)
+
+        # Session store
+        store = SessionStore(cfg.session.history_db)
+        await store.init()
+
+        # Artifact store
+        artifact_dir = Path(cfg.policy.audit_log_path).parent / "artifacts"
+        artifact_store = ArtifactStore(str(artifact_dir))
+
+        # Tool registry + backend router
+        registry = ToolRegistry()
+        backend_router = None
+        _log = logging.getLogger(__name__)
+
+        try:
+            from workbench.backends.bridge import (
+                ListDiagnosticsTool, ResolveTargetTool,
+                RunDiagnosticTool, RunShellTool, SummarizeArtifactTool,
+            )
+            from workbench.backends.local import LocalBackend
+            from workbench.backends.router import BackendRouter
+            from workbench.backends.ssh import SSHBackend
+
+            backend_router = BackendRouter()
+            backend_router.set_default(LocalBackend())
+
+            for host_cfg in cfg.backends.ssh_hosts:
+                ssh = SSHBackend(
+                    host=host_cfg["host"],
+                    port=host_cfg.get("port", 22),
+                    username=host_cfg.get("username", "root"),
+                    key_path=host_cfg.get("key_path"),
+                    password=os.environ.get(host_cfg.get("password_env", "")) if host_cfg.get("password_env") else None,
+                    timeout=host_cfg.get("timeout", 10),
+                )
+                try:
+                    await ssh.connect()
+                    backend_router.register(host_cfg["name"], ssh)
+                    backend_router.register(host_cfg["host"], ssh)
+                    _log.info("SSH connected: %s (%s)", host_cfg["name"], host_cfg["host"])
+                except Exception as e:
+                    _log.warning("SSH connect failed for %s: %s", host_cfg.get("name", host_cfg["host"]), e)
+
+            registry.register(ResolveTargetTool(backend_router))
+            registry.register(ListDiagnosticsTool(backend_router))
+            registry.register(RunDiagnosticTool(backend_router))
+            registry.register(RunShellTool(backend_router))
+            registry.register(SummarizeArtifactTool(artifact_store))
+        except Exception:
+            _log.exception("Failed to register backend tools")
+
+        # Policy
+        risk_map = {r.name: r for r in ToolRisk}
+        max_risk = risk_map.get(cfg.policy.max_risk, ToolRisk.READ_ONLY)
+        policy = PolicyEngine(
+            max_risk=max_risk,
+            confirm_destructive=cfg.policy.confirm_destructive,
+            confirm_shell=cfg.policy.confirm_shell,
+            confirm_write=cfg.policy.confirm_write,
+            blocked_patterns=cfg.policy.blocked_patterns,
+            redaction_patterns=cfg.policy.redaction_patterns,
+            audit_log_path=cfg.policy.audit_log_path,
+            audit_max_size_mb=cfg.policy.audit_max_size_mb,
+            audit_keep_files=cfg.policy.audit_keep_files,
+        )
+
+        return create_app(
+            config=cfg,
+            session_store=store,
+            registry=registry,
+            backend_router=backend_router,
+            policy=policy,
+            auth_token=auth_token,
+        )
+
+    console.print(f"[bold]Agent Manager[/bold] starting on http://{host}:{port}")
+    console.print("[dim]Press Ctrl+C to stop[/dim]")
+
+    fast_app = asyncio.run(_setup_web())
+    uvicorn.run(fast_app, host=host, port=port, log_level="info")
+
+
+@app.command()
 def version():
     """Show version."""
     console.print("workbench-core v0.1.0")
