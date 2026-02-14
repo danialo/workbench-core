@@ -1,20 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Antigravity Agent Manager — manage AI agent workspaces, conversations, and inbox">
-    <title>Agent Manager — Antigravity</title>
+    <meta name="description" content="Zero-G Agent Manager — manage AI agent workspaces, conversations, and inbox">
+    <title>Agent Manager — Zero-G</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/index.css">
 </head>
+
 <body>
     <!-- TOP BAR -->
     <header class="top-bar" id="topBar">
         <div class="top-bar__left">
-            <span class="top-bar__brand">Antigravity</span>
+            <span class="top-bar__brand">Zero-G</span>
             <button class="top-bar__menu-item" id="menuFile">File</button>
             <button class="top-bar__menu-item" id="menuEdit">Edit</button>
             <button class="top-bar__menu-item" id="menuView">View</button>
@@ -42,7 +44,8 @@
                     <span class="sidebar__inbox-icon">📥</span>
                     <span>Inbox</span>
                     <span class="sidebar__inbox-badge" id="inboxBadge" style="display:none">0</span>
-                    <button class="sidebar__icon-btn sidebar__inbox-panel-btn" id="btnInboxPanel" title="Panel">⊞</button>
+                    <button class="sidebar__icon-btn sidebar__inbox-panel-btn" id="btnInboxPanel"
+                        title="Panel">⊞</button>
                 </button>
                 <button class="sidebar__start-btn" id="btnStartConversation">
                     <span>+ Start conversation</span>
@@ -83,7 +86,8 @@
                 <div class="conversation-view__header">
                     <h1 class="conversation-view__title">
                         Start new conversation in
-                        <span class="conversation-view__breadcrumb">▸ <span id="currentWorkspace">Playground</span></span>
+                        <span class="conversation-view__breadcrumb">▸ <span
+                                id="currentWorkspace">Playground</span></span>
                     </h1>
                     <button class="conversation-view__inbox-link" id="btnViewInbox">📥 View Inbox</button>
                 </div>
@@ -92,7 +96,8 @@
 
                 <div class="conversation-view__input-area">
                     <div class="input-box" id="inputBox">
-                        <textarea class="input-box__textarea" id="messageInput" placeholder="Ask anything, @ for context" rows="1"></textarea>
+                        <textarea class="input-box__textarea" id="messageInput"
+                            placeholder="Ask anything, @ for context" rows="1"></textarea>
                         <div class="input-box__controls">
                             <div class="input-box__left-controls">
                                 <button class="input-box__control-btn" id="btnAttach" title="Attach">+</button>
@@ -124,7 +129,8 @@
                     <p class="about__text">
                         Playgrounds are independent workspaces perfect for quick prototypes or following your curiosity.
                         Move to a <a href="#" class="about__link" id="linkDedicatedWorkspace">dedicated workspace</a>
-                        to <a href="#" class="about__link" id="linkContinue">continue exploring with multiple conversations</a>.
+                        to <a href="#" class="about__link" id="linkContinue">continue exploring with multiple
+                            conversations</a>.
                     </p>
                 </div>
             </div>
@@ -150,4 +156,5 @@
 
     <script src="/static/app.js"></script>
 </body>
+
 </html>
