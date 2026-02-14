@@ -8,6 +8,8 @@ orchestrator pipeline.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 from pathlib import Path
@@ -147,12 +149,15 @@ def create_app(
     # ---- Security middleware (order matters: outermost runs first) ----
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RateLimitMiddleware, max_requests=120, window_seconds=60)
-    csrf = CSRFMiddleware(app)
-    app.add_middleware(CSRFMiddleware)
+
+    # CSRF: share a single secret between middleware and token endpoint
+    import secrets as _secrets
+    csrf_secret = _secrets.token_hex(32)
+    app.add_middleware(CSRFMiddleware, secret=csrf_secret)
     app.add_middleware(AuthMiddleware, auth_token=auth_token)
 
-    # Store CSRF middleware for token generation
-    app.state.csrf_middleware = csrf
+    # Store secret for token generation in endpoint
+    app.state.csrf_secret = csrf_secret
 
     # ---- Static files ----
     if _STATIC_DIR.exists():
@@ -173,8 +178,11 @@ def create_app(
     @app.get("/api/csrf-token")
     async def get_csrf_token():
         """Get a CSRF token for state-changing requests."""
-        token = app.state.csrf_middleware.generate_token()
-        return {"csrf_token": token}
+        nonce = _secrets.token_hex(16)
+        sig = hmac.new(
+            app.state.csrf_secret.encode(), nonce.encode(), hashlib.sha256
+        ).hexdigest()
+        return {"csrf_token": f"{nonce}:{sig}"}
 
     # ---- Sessions ----
 

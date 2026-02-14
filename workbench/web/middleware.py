@@ -93,9 +93,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     as ``X-CSRF-Token`` on all state-changing requests.
     """
 
-    def __init__(self, app: Any) -> None:
+    def __init__(self, app: Any, secret: str | None = None) -> None:
         super().__init__(app)
-        self._secret = secrets.token_hex(32)
+        self._secret = secret or secrets.token_hex(32)
 
     def generate_token(self) -> str:
         """Generate a CSRF token tied to the server secret."""
