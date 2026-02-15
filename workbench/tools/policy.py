@@ -17,6 +17,7 @@ class PolicyEngine:
         confirm_shell: bool = True,
         confirm_write: bool = False,
         blocked_patterns: list[str] | None = None,
+        allowed_patterns: list[str] | None = None,
         redaction_patterns: list[str] | None = None,
         audit_log_path: str,
         audit_max_size_mb: int = 10,
@@ -27,6 +28,7 @@ class PolicyEngine:
         self.confirm_shell = confirm_shell
         self.confirm_write = confirm_write
         self.blocked_patterns = blocked_patterns or []
+        self.allowed_patterns = allowed_patterns or []
         self._redaction_patterns = [re.compile(p) for p in (redaction_patterns or [])]
         self.audit_path = Path(audit_log_path).expanduser()
         self.audit_path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,6 +56,14 @@ class PolicyEngine:
             for pat in self.blocked_patterns:
                 if re.search(pat, blob):
                     return PolicyDecision(False, "blocked_pattern")
+
+        # Check allowlist — matching commands skip confirmation (but NOT risk blocks)
+        if needs_confirm and self.allowed_patterns:
+            blob = json.dumps(kwargs, sort_keys=True, default=str)
+            for pat in self.allowed_patterns:
+                if re.search(pat, blob):
+                    needs_confirm = False
+                    break
 
         if needs_confirm:
             return PolicyDecision(True, "requires_confirmation", requires_confirmation=True)

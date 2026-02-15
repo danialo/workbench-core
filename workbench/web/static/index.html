@@ -134,6 +134,7 @@
             <div class="sidebar__section" id="workspacesSection">
                 <div class="sidebar__section-header">
                     <span class="sidebar__section-title">Workspaces</span>
+                    <button class="sidebar__icon-btn sidebar__section-add" id="btnNewWorkspaceSection" title="New Workspace">+</button>
                 </div>
                 <div class="sidebar__workspace-list" id="workspaceList"></div>
                 <button class="sidebar__add-btn" id="btnOpenWorkspace">
@@ -168,7 +169,17 @@
                         <span class="conversation-view__breadcrumb">▸ <span
                                 id="currentWorkspace">Playground</span></span>
                     </h1>
-                    <button class="conversation-view__inbox-link" id="btnViewInbox">📥 View Inbox</button>
+                    <div class="conversation-view__header-actions">
+                        <div class="streaming-indicator" id="streamingIndicator" style="display:none">
+                            <span class="streaming-indicator__dot"></span>
+                            <span class="streaming-indicator__text">Streaming</span>
+                        </div>
+                        <button class="follow-along" id="btnFollowAlong" style="display:none" title="Follow Along">
+                            <span class="follow-along__icon">&#8595;</span>
+                            <span class="follow-along__label">Follow</span>
+                        </button>
+                        <button class="conversation-view__inbox-link" id="btnViewInbox">📥 View Inbox</button>
+                    </div>
                 </div>
 
                 <div class="conversation-view__messages" id="messagesContainer"></div>

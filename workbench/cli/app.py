@@ -524,11 +524,39 @@ def web(
             confirm_shell=cfg.policy.confirm_shell,
             confirm_write=cfg.policy.confirm_write,
             blocked_patterns=cfg.policy.blocked_patterns,
+            allowed_patterns=getattr(cfg.policy, 'allowed_patterns', []),
             redaction_patterns=cfg.policy.redaction_patterns,
             audit_log_path=cfg.policy.audit_log_path,
             audit_max_size_mb=cfg.policy.audit_max_size_mb,
             audit_keep_files=cfg.policy.audit_keep_files,
         )
+
+        # LLM Router
+        llm_router = LLMRouter()
+
+        from workbench.llm.providers.openai_compat import OpenAICompatProvider
+
+        api_key = os.environ.get(cfg.llm.api_key_env, "")
+        if api_key:
+            llm_provider = OpenAICompatProvider(
+                url=cfg.llm.api_base or "https://api.openai.com/v1",
+                model=cfg.llm.model,
+                api_key=api_key,
+                timeout=float(cfg.llm.timeout_seconds),
+                max_context=cfg.llm.max_context_tokens,
+                max_output=cfg.llm.max_output_tokens,
+            )
+            llm_router.register_provider(cfg.llm.name, llm_provider)
+            _log.info("LLM provider registered: %s (%s)", cfg.llm.name, cfg.llm.model)
+        else:
+            _log.warning("No API key found in %s, running in UI-only mode", cfg.llm.api_key_env)
+            llm_router = None
+
+        # Token counter
+        token_counter = TokenCounter()
+
+        # System prompt
+        system_prompt = build_system_prompt(tools=registry.list())
 
         return create_app(
             config=cfg,
@@ -537,6 +565,10 @@ def web(
             backend_router=backend_router,
             policy=policy,
             auth_token=auth_token,
+            llm_router=llm_router,
+            token_counter=token_counter,
+            artifact_store=artifact_store,
+            system_prompt=system_prompt,
         )
 
     console.print(f"[bold]Agent Manager[/bold] starting on http://{host}:{port}")

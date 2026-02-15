@@ -39,6 +39,7 @@ class PolicyConfig:
     confirm_shell: bool = True
     confirm_write: bool = False
     blocked_patterns: list[str] = field(default_factory=list)
+    allowed_patterns: list[str] = field(default_factory=list)
     redaction_patterns: list[str] = field(default_factory=list)
     audit_log_path: str = "~/.workbench/audit.jsonl"
     audit_max_size_mb: int = 10
@@ -162,6 +163,7 @@ _ENV_MAP: dict[str, tuple[str, type]] = {
     "WORKBENCH_POLICY_CONFIRM_SHELL": ("policy.confirm_shell", bool),
     "WORKBENCH_POLICY_CONFIRM_WRITE": ("policy.confirm_write", bool),
     "WORKBENCH_POLICY_BLOCKED":       ("policy.blocked_patterns", list),
+    "WORKBENCH_POLICY_ALLOWED":       ("policy.allowed_patterns", list),
     "WORKBENCH_POLICY_REDACTION":     ("policy.redaction_patterns", list),
     "WORKBENCH_POLICY_AUDIT_PATH":    ("policy.audit_log_path", str),
     "WORKBENCH_POLICY_AUDIT_SIZE_MB": ("policy.audit_max_size_mb", int),

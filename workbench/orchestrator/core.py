@@ -31,6 +31,8 @@ from workbench.session.events import (
 from workbench.session.session import Session
 from workbench.tools.policy import PolicyEngine
 from workbench.tools.registry import ToolRegistry
+from workbench.llm.tool_call_assembler import ToolCallAssembler
+from workbench.orchestrator.events import OrchestratorEvent
 from workbench.tools.validation import ToolValidator
 from workbench.types import ArtifactPayload, ErrorCode, ToolResult
 
@@ -179,6 +181,161 @@ class Orchestrator:
         assistant_event = assistant_message_event(turn_id, max_turns_msg)
         await self.session.append_event(assistant_event)
         yield StreamChunk(delta=max_turns_msg, done=True)
+
+    async def run_streaming(self, user_input: str) -> AsyncIterator[OrchestratorEvent]:
+        """
+        Process a user message and yield typed OrchestratorEvents for SSE streaming.
+
+        Unlike ``run()`` which yields ``StreamChunk`` objects, this method yields
+        ``OrchestratorEvent`` instances suitable for real-time web UI updates via
+        Server-Sent Events.
+        """
+        try:
+            turn_id = self.session.new_turn()
+
+            # Record user message event
+            event = user_message_event(turn_id, user_input)
+            await self.session.append_event(event)
+
+            tools_schema = self.registry.to_openai_schema()
+
+            for turn in range(self.max_turns):
+                # Build context window
+                messages, _report = await self.session.get_context_window(
+                    tools=tools_schema,
+                    system_prompt=self.system_prompt,
+                    max_context_tokens=self.router.active_provider.max_context_tokens,
+                    max_output_tokens=self.router.active_provider.max_output_tokens,
+                )
+
+                # Prepend system prompt
+                if self.system_prompt:
+                    messages = [Message(role="system", content=self.system_prompt)] + messages
+
+                # Stream from LLM using raw chat() for token-by-token delivery
+                assembler = ToolCallAssembler()
+                content_parts: list[str] = []
+                assembled_calls: list[ToolCall] = []
+
+                async for chunk in self.router.chat(
+                    messages=messages,
+                    tools=tools_schema if tools_schema else None,
+                    stream=True,
+                ):
+                    # Yield text deltas for real-time display
+                    if chunk.delta:
+                        content_parts.append(chunk.delta)
+                        yield OrchestratorEvent(
+                            type="text_delta",
+                            data={"delta": chunk.delta},
+                        )
+
+                    # Feed tool deltas into the assembler
+                    if chunk.tool_deltas:
+                        for td in chunk.tool_deltas:
+                            finished = assembler.feed(td)
+                            assembled_calls.extend(finished)
+
+                # Flush any remaining incomplete buffers
+                assembled_calls.extend(assembler.flush())
+
+                full_content = "".join(content_parts)
+
+                # Check for assembler errors
+                if assembler.errors:
+                    error_event = protocol_error_event(
+                        turn_id,
+                        "Tool call assembly failed",
+                        details={"errors": assembler.errors},
+                    )
+                    await self.session.append_event(error_event)
+
+                    if full_content:
+                        assistant_ev = assistant_message_event(turn_id, full_content)
+                        await self.session.append_event(assistant_ev)
+                    else:
+                        error_msg = "I encountered a protocol error processing tool calls. Please try rephrasing your request."
+                        assistant_ev = assistant_message_event(turn_id, error_msg)
+                        await self.session.append_event(assistant_ev)
+                        yield OrchestratorEvent(
+                            type="text_delta",
+                            data={"delta": error_msg},
+                        )
+
+                    yield OrchestratorEvent(type="done", data={})
+                    return
+
+                # No tool calls -> final response
+                if not assembled_calls:
+                    if full_content:
+                        assistant_ev = assistant_message_event(
+                            turn_id, full_content, model=None
+                        )
+                        await self.session.append_event(assistant_ev)
+
+                    yield OrchestratorEvent(type="done", data={})
+                    return
+
+                # Record assistant message (before tool calls)
+                if full_content:
+                    assistant_ev = assistant_message_event(turn_id, full_content)
+                    await self.session.append_event(assistant_ev)
+
+                # Process each tool call
+                for tc in assembled_calls:
+                    # Check policy before execution to emit confirmation_required event
+                    tool = self.registry.get(tc.name)
+                    if tool:
+                        decision = self.policy.check(tool, tc.arguments)
+                        if decision.requires_confirmation:
+                            yield OrchestratorEvent(
+                                type="confirmation_required",
+                                data={
+                                    "tool_call_id": tc.id,
+                                    "tool_name": tc.name,
+                                    "args": tc.arguments,
+                                },
+                            )
+
+                    yield OrchestratorEvent(
+                        type="tool_call_start",
+                        data={
+                            "tool_call_id": tc.id,
+                            "name": tc.name,
+                            "args": tc.arguments,
+                        },
+                    )
+
+                    # Execute (this will block on confirmation if needed)
+                    result = await self._execute_tool_call(turn_id, tc)
+
+                    yield OrchestratorEvent(
+                        type="tool_call_result",
+                        data={
+                            "tool_call_id": tc.id,
+                            "name": tc.name,
+                            "content": result.content,
+                            "success": result.success,
+                            "error": result.error,
+                        },
+                    )
+
+            # Max turns exceeded
+            max_turns_msg = f"Reached maximum of {self.max_turns} tool call rounds. Please provide more specific guidance."
+            assistant_ev = assistant_message_event(turn_id, max_turns_msg)
+            await self.session.append_event(assistant_ev)
+            yield OrchestratorEvent(
+                type="text_delta",
+                data={"delta": max_turns_msg},
+            )
+            yield OrchestratorEvent(type="done", data={})
+
+        except Exception as e:
+            logger.exception("Streaming orchestrator error")
+            yield OrchestratorEvent(
+                type="error",
+                data={"message": str(e)},
+            )
 
     async def _execute_tool_call(
         self, turn_id: str, tool_call: ToolCall

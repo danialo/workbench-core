@@ -12,11 +12,13 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -134,6 +136,10 @@ def create_app(
     orchestrator: Any = None,
     workspace_manager: WorkspaceManager | None = None,
     auth_token: str | None = None,
+    llm_router: Any = None,
+    token_counter: Any = None,
+    artifact_store: Any = None,
+    system_prompt: str = "",
 ) -> FastAPI:
     """
     Build the FastAPI application with the full workbench stack wired in.
@@ -177,6 +183,14 @@ def create_app(
         workspace_manager.load()
     app.state.workspace_manager = workspace_manager
 
+    # --- Memory providers ---
+    from workbench.memory.sqlite_provider import SQLiteMemoryProvider
+    from workbench.memory.file_provider import FileMemoryProvider
+
+    db_path = str(Path(config.session.history_db).expanduser()) if config else "~/.workbench/history.db"
+    memory_provider = SQLiteMemoryProvider(db_path)
+    file_memory_provider = FileMemoryProvider()
+
     # ---- Security middleware (order matters: outermost runs first) ----
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RateLimitMiddleware, max_requests=120, window_seconds=60)
@@ -189,6 +203,27 @@ def create_app(
 
     # Store secret for token generation in endpoint
     app.state.csrf_secret = csrf_secret
+
+    # ---- Streaming infrastructure ----
+    confirmation_manager = None
+    orchestrator_factory = None
+
+    if llm_router is not None:
+        from workbench.web.streaming import OrchestratorFactory, ConfirmationManager
+
+        confirmation_manager = ConfirmationManager()
+        orchestrator_factory = OrchestratorFactory(
+            session_store=session_store,
+            registry=registry,
+            router=llm_router,
+            policy=policy,
+            artifact_store=artifact_store,
+            token_counter=token_counter,
+            system_prompt=system_prompt,
+        )
+
+    app.state.orchestrator_factory = orchestrator_factory
+    app.state.confirmation_manager = confirmation_manager
 
     # ---- Static files ----
     if _STATIC_DIR.exists():
@@ -682,5 +717,243 @@ def create_app(
             ).model_dump())
 
         return {"tools": tools}
+
+    # ---- Streaming & LLM endpoints ----
+
+    @app.post("/api/sessions/{session_id}/stream")
+    async def stream_message(session_id: str, request: Request):
+        """Stream LLM response via SSE."""
+        if app.state.orchestrator_factory is None:
+            return JSONResponse(
+                {"error": "LLM not configured. Running in UI-only mode."},
+                status_code=503,
+            )
+
+        body = await request.json()
+        content = body.get("content", "").strip()
+        if not content:
+            return JSONResponse({"error": "Empty message"}, status_code=400)
+
+        # Verify session exists and resolve workspace
+        session_meta = await session_store.get_session(session_id)
+        if session_meta is None:
+            return JSONResponse({"error": "Session not found"}, status_code=404)
+
+        # Resolve workspace-scoped allowlist for this session
+        ws_id = GLOBAL_WORKSPACE_ID
+        if session_meta.get("metadata"):
+            try:
+                meta = json.loads(session_meta["metadata"]) if isinstance(session_meta["metadata"], str) else session_meta["metadata"]
+                ws_id = meta.get("workspace_id", GLOBAL_WORKSPACE_ID)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        effective_patterns = await _resolve_effective_allowlist(ws_id)
+
+        cm = app.state.confirmation_manager
+
+        async def confirmation_callback(tool_name: str, tool_call: Any) -> bool:
+            return await cm.wait_for_confirmation(
+                session_id=session_id,
+                tool_call_id=tool_call.id,
+                tool_name=tool_name,
+                tool_args=tool_call.arguments,
+            )
+
+        orch = await app.state.orchestrator_factory.create(
+            session_id=session_id,
+            confirmation_callback=confirmation_callback,
+            allowed_patterns=effective_patterns,
+        )
+
+        from workbench.web.streaming import sse_generator
+        events = orch.run_streaming(content)
+
+        return StreamingResponse(
+            sse_generator(events),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @app.post("/api/sessions/{session_id}/confirm")
+    async def confirm_tool_call(session_id: str, request: Request):
+        """Resolve a pending tool call confirmation."""
+        if app.state.confirmation_manager is None:
+            return JSONResponse({"error": "Not available"}, status_code=503)
+
+        body = await request.json()
+        tool_call_id = body.get("tool_call_id", "")
+        confirmed = body.get("confirmed", False)
+
+        found = app.state.confirmation_manager.resolve(session_id, tool_call_id, confirmed)
+        if not found:
+            return JSONResponse({"error": "No pending confirmation found"}, status_code=404)
+
+        return JSONResponse({"status": "resolved", "confirmed": confirmed})
+
+    @app.get("/api/providers")
+    async def list_providers():
+        """List registered LLM providers."""
+        if llm_router is None:
+            return JSONResponse({"providers": [], "active": None})
+
+        return JSONResponse({
+            "providers": llm_router.provider_names,
+            "active": llm_router.active_name,
+        })
+
+    # --- Memory endpoints ---
+
+    @app.get("/api/workspaces/{workspace_id}/memory")
+    async def list_memory(workspace_id: str):
+        """List all memory entries for a workspace."""
+        await memory_provider._ensure_init()
+        entries = await memory_provider.get_all(workspace_id)
+        return JSONResponse({"entries": entries})
+
+    @app.get("/api/workspaces/{workspace_id}/memory/local")
+    async def get_local_memory(workspace_id: str):
+        """Read workspace-local memory files (CLAUDE.md, etc.)."""
+        ws = workspace_manager.get(workspace_id)
+        if ws is None or not ws.path:
+            return JSONResponse({"files": {}})
+
+        files = await file_memory_provider.get_all(ws.path)
+        return JSONResponse({"files": files})
+
+    @app.put("/api/workspaces/{workspace_id}/memory/{key:path}")
+    async def set_memory(workspace_id: str, key: str, request: Request):
+        """Set a memory value."""
+        body = await request.json()
+        value = body.get("value", "")
+        await memory_provider.set(workspace_id, key, value)
+        return JSONResponse({"status": "ok"})
+
+    @app.delete("/api/workspaces/{workspace_id}/memory/{key:path}")
+    async def delete_memory(workspace_id: str, key: str):
+        """Delete a memory entry."""
+        deleted = await memory_provider.delete(workspace_id, key)
+        if not deleted:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        return JSONResponse({"status": "deleted"})
+
+    # --- Allowlist endpoints ---
+
+    ALLOWLIST_KEY = "_allowlist"
+    GLOBAL_ALLOWLIST_WS = "__global__"
+
+    async def _load_allowlist(ws_id: str) -> list[str]:
+        """Load allowlist patterns from SQLite for a given scope."""
+        await memory_provider._ensure_init()
+        raw = await memory_provider.get(ws_id, ALLOWLIST_KEY)
+        if raw is None:
+            return []
+        try:
+            patterns = json.loads(raw)
+            return patterns if isinstance(patterns, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    async def _save_allowlist(ws_id: str, patterns: list[str]) -> None:
+        """Persist allowlist patterns to SQLite."""
+        await memory_provider._ensure_init()
+        await memory_provider.set(ws_id, ALLOWLIST_KEY, json.dumps(patterns))
+
+    async def _resolve_effective_allowlist(workspace_id: str) -> list[str]:
+        """Merge global + workspace allowlist. Workspace patterns add to global."""
+        global_patterns = await _load_allowlist(GLOBAL_ALLOWLIST_WS)
+        if workspace_id == GLOBAL_ALLOWLIST_WS or workspace_id == GLOBAL_WORKSPACE_ID:
+            return global_patterns
+        ws_patterns = await _load_allowlist(workspace_id)
+        # Workspace adds to global (deduplicated, order preserved)
+        seen = set()
+        merged = []
+        for p in global_patterns + ws_patterns:
+            if p not in seen:
+                seen.add(p)
+                merged.append(p)
+        return merged
+
+    def _validate_patterns(patterns: list) -> str | None:
+        """Validate regex patterns. Returns error message or None."""
+        for pat in patterns:
+            if not isinstance(pat, str):
+                return f"Pattern must be a string, got {type(pat).__name__}"
+            try:
+                re.compile(pat)
+            except re.error as e:
+                return f"Invalid regex pattern '{pat}': {e}"
+        return None
+
+    @app.get("/api/policy/allowlist")
+    async def get_global_allowlist():
+        """Get the global command allowlist."""
+        patterns = await _load_allowlist(GLOBAL_ALLOWLIST_WS)
+        return JSONResponse({"patterns": patterns, "scope": "global"})
+
+    @app.put("/api/policy/allowlist")
+    async def update_global_allowlist(request: Request):
+        """Update the global command allowlist (persisted)."""
+        body = await request.json()
+        patterns = body.get("patterns", [])
+        err = _validate_patterns(patterns)
+        if err:
+            return JSONResponse({"error": err}, status_code=400)
+        await _save_allowlist(GLOBAL_ALLOWLIST_WS, patterns)
+        # Also update the in-memory policy for non-streaming paths
+        policy.allowed_patterns = patterns
+        return JSONResponse({"status": "updated", "patterns": patterns, "scope": "global"})
+
+    @app.get("/api/workspaces/{workspace_id}/allowlist")
+    async def get_workspace_allowlist(workspace_id: str):
+        """Get effective allowlist for a workspace (global + workspace-specific)."""
+        ws_patterns = await _load_allowlist(workspace_id)
+        effective = await _resolve_effective_allowlist(workspace_id)
+        global_patterns = await _load_allowlist(GLOBAL_ALLOWLIST_WS)
+        return JSONResponse({
+            "effective": effective,
+            "workspace": ws_patterns,
+            "global": global_patterns,
+            "scope": workspace_id,
+        })
+
+    @app.put("/api/workspaces/{workspace_id}/allowlist")
+    async def update_workspace_allowlist(workspace_id: str, request: Request):
+        """Update workspace-specific allowlist (adds to global)."""
+        if workspace_id == GLOBAL_WORKSPACE_ID:
+            return JSONResponse(
+                {"error": "Use PUT /api/policy/allowlist for global scope"},
+                status_code=400,
+            )
+        body = await request.json()
+        patterns = body.get("patterns", [])
+        err = _validate_patterns(patterns)
+        if err:
+            return JSONResponse({"error": err}, status_code=400)
+        await _save_allowlist(workspace_id, patterns)
+        effective = await _resolve_effective_allowlist(workspace_id)
+        return JSONResponse({
+            "status": "updated",
+            "workspace": patterns,
+            "effective": effective,
+            "scope": workspace_id,
+        })
+
+    @app.delete("/api/workspaces/{workspace_id}/allowlist")
+    async def reset_workspace_allowlist(workspace_id: str):
+        """Reset workspace allowlist to global only (remove workspace overrides)."""
+        if workspace_id == GLOBAL_WORKSPACE_ID:
+            return JSONResponse({"error": "Cannot reset global"}, status_code=400)
+        await memory_provider._ensure_init()
+        await memory_provider.delete(workspace_id, ALLOWLIST_KEY)
+        effective = await _resolve_effective_allowlist(workspace_id)
+        return JSONResponse({
+            "status": "reset",
+            "effective": effective,
+            "scope": workspace_id,
+        })
 
     return app

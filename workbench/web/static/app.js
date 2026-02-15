@@ -18,6 +18,14 @@ class AgentManagerApp {
         this.currentView = 'conversation'; // 'conversation' | 'inbox'
         this.searchDebounceTimer = null;
 
+        // Streaming state
+        this.isStreaming = false;
+        this.followAlong = true;
+
+        // Track which workspaces are expanded/closed in sidebar
+        this.expandedWorkspaces = new Set();
+        this.closedWorkspaces = new Set();
+
         this.init();
     }
 
@@ -28,6 +36,7 @@ class AgentManagerApp {
         await Promise.all([
             this.fetchWorkspaces(),
             this.fetchSessions(),
+            this.fetchProviders(),
         ]);
         this.render();
     }
@@ -142,9 +151,13 @@ class AgentManagerApp {
             }
         });
 
-        // Start conversation
+        // Start conversation (under active workspace)
         this.elStartBtn.addEventListener('click', () => this.createSession());
-        this.elNewPlayground.addEventListener('click', () => this.createSession());
+        // Playground "+" always creates under global
+        this.elNewPlayground.addEventListener('click', () => {
+            this.activeWorkspaceId = 'global';
+            this.createSession();
+        });
 
         // Send message
         this.elSendBtn.addEventListener('click', () => this.sendMessage());
@@ -173,9 +186,35 @@ class AgentManagerApp {
             this.searchDebounceTimer = setTimeout(() => this.searchInbox(), 250);
         });
 
+        // Follow along: disengage on manual scroll up, re-engage at bottom
+        if (this.elMessages) {
+            this.elMessages.addEventListener('scroll', () => {
+                if (this.isStreaming) {
+                    const el = this.elMessages;
+                    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+                    this.followAlong = isAtBottom;
+                    this.updateFollowAlongButton();
+                }
+            });
+        }
+
+        // Follow along button click
+        const followBtn = document.getElementById('btnFollowAlong');
+        if (followBtn) {
+            followBtn.addEventListener('click', () => {
+                this.followAlong = !this.followAlong;
+                this.updateFollowAlongButton();
+                if (this.followAlong) this.scrollToBottom();
+            });
+        }
+
         // Workspace tabs
         this.elTabGlobal.addEventListener('click', () => this.switchWorkspace('global'));
         this.elBtnNewWorkspace.addEventListener('click', () => this.openNewWorkspaceDialog());
+        const elNewWsSection = document.getElementById('btnNewWorkspaceSection');
+        if (elNewWsSection) {
+            elNewWsSection.addEventListener('click', () => this.openNewWorkspaceDialog());
+        }
         if (this.elOpenWorkspace) {
             this.elOpenWorkspace.addEventListener('click', () => this.openNewWorkspaceDialog());
         }
@@ -274,9 +313,35 @@ class AgentManagerApp {
         }
     }
 
+    async fetchProviders() {
+        try {
+            const data = await this.apiFetch('/api/providers');
+            const select = document.getElementById('modelSelect');
+            if (select && data.providers && data.providers.length > 0) {
+                select.innerHTML = '';
+                for (const p of data.providers) {
+                    const opt = document.createElement('option');
+                    opt.value = p;
+                    opt.textContent = p;
+                    opt.selected = (p === data.active);
+                    select.appendChild(opt);
+                }
+            }
+        } catch (e) {
+            console.warn('Could not fetch providers:', e);
+        }
+    }
+
     // ---- Workspace Actions ----
 
     async switchWorkspace(workspaceId) {
+        // Toggle expand/collapse if clicking the already-active workspace
+        if (this.expandedWorkspaces.has(workspaceId)) {
+            this.expandedWorkspaces.delete(workspaceId);
+        } else {
+            this.expandedWorkspaces.add(workspaceId);
+        }
+
         this.activeWorkspaceId = workspaceId;
         this.currentSessionId = null;
 
@@ -458,6 +523,9 @@ class AgentManagerApp {
 
             this.closeNewWorkspaceDialog();
             await this.fetchWorkspaces();
+            // Ensure new workspace is visible and expanded
+            this.closedWorkspaces.delete(ws.workspace_id);
+            this.expandedWorkspaces.add(ws.workspace_id);
             this.switchWorkspace(ws.workspace_id);
         } catch (e) {
             console.error('Failed to create workspace:', e);
@@ -465,21 +533,25 @@ class AgentManagerApp {
         }
     }
 
-    async deleteWorkspace(workspaceId) {
+    closeWorkspace(workspaceId) {
         if (workspaceId === 'global') return;
-        if (!confirm('Delete this workspace? Sessions will be unscoped.')) return;
-
-        try {
-            await this.apiFetch(`/api/workspaces/${workspaceId}`, { method: 'DELETE' });
-            await this.fetchWorkspaces();
-            if (this.activeWorkspaceId === workspaceId) {
-                this.switchWorkspace('global');
-            } else {
-                this.render();
-            }
-        } catch (e) {
-            console.error('Failed to delete workspace:', e);
+        // Just remove from visible UI — workspace data and sessions are preserved
+        this.expandedWorkspaces.delete(workspaceId);
+        this.closedWorkspaces.add(workspaceId);
+        if (this.activeWorkspaceId === workspaceId) {
+            this.activeWorkspaceId = 'global';
+            this.currentSessionId = null;
+            this.elMessages.innerHTML = '';
+            this.elAboutSection.style.display = '';
         }
+        this.render();
+    }
+
+    reopenWorkspace(workspaceId) {
+        this.closedWorkspaces.delete(workspaceId);
+        this.expandedWorkspaces.add(workspaceId);
+        this.activeWorkspaceId = workspaceId;
+        this.render();
     }
 
     // ---- Session Actions ----
@@ -495,6 +567,10 @@ class AgentManagerApp {
             });
 
             this.currentSessionId = data.session_id;
+            // Auto-expand the workspace so the new conversation is visible
+            if (this.activeWorkspaceId !== 'global') {
+                this.expandedWorkspaces.add(this.activeWorkspaceId);
+            }
             await this.fetchSessions();
             this.render();
             this.switchView('conversation');
@@ -513,50 +589,388 @@ class AgentManagerApp {
             await this.createSession();
         }
 
-        // Optimistic UI: show message immediately
-        this.appendMessage('user', content);
+        if (!this.currentSessionId) return;
+
+        await this.sendMessageStreaming();
+    }
+
+    async sendMessageStreaming() {
+        const content = this.elMessageInput.value.trim();
+        if (!content || !this.currentSessionId) return;
+
+        // Clear input and show user message
         this.elMessageInput.value = '';
         this.elMessageInput.style.height = 'auto';
         this.elSendBtn.classList.remove('input-box__send-btn--active');
+        this.appendMessage('user', content);
         this.elAboutSection.style.display = 'none';
 
-        const loadingEl = this.appendLoading();
+        // Create assistant message container (will be filled progressively)
+        const assistantDiv = this.createAssistantMessageContainer();
+        const contentEl = assistantDiv.querySelector('.message__content');
+
+        // Show streaming indicator
+        this.setStreaming(true);
 
         try {
-            const data = await this.apiFetch(`/api/sessions/${this.currentSessionId}/messages`, {
+            const response = await fetch(`/api/sessions/${this.currentSessionId}/stream`, {
                 method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': this.csrfToken,
+                    ...(this.authToken ? {'Authorization': `Bearer ${this.authToken}`} : {}),
+                },
                 body: JSON.stringify({ content }),
             });
 
-            loadingEl.remove();
-
-            if (data.response) {
-                this.appendMessage('assistant', data.response);
+            if (!response.ok) {
+                const err = await response.json();
+                this.appendMessage('error', err.error || 'Failed to send message');
+                return;
             }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';  // Keep incomplete line in buffer
+
+                let eventType = '';
+                let eventData = '';
+
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) {
+                        eventType = line.slice(7).trim();
+                    } else if (line.startsWith('data: ')) {
+                        eventData = line.slice(6);
+                        // Process complete event
+                        if (eventType && eventData) {
+                            try {
+                                const data = JSON.parse(eventData);
+                                this.handleSSEEvent(eventType, data, contentEl, assistantDiv);
+                            } catch (e) {
+                                console.warn('Failed to parse SSE data:', eventData);
+                            }
+                        }
+                        eventType = '';
+                        eventData = '';
+                    } else if (line.trim() === '') {
+                        // Empty line = event boundary, reset
+                        eventType = '';
+                        eventData = '';
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Streaming error:', err);
+            this.appendMessage('error', 'Connection lost during streaming');
+        } finally {
+            this.setStreaming(false);
+        }
+    }
+
+    handleSSEEvent(type, data, contentEl, assistantDiv) {
+        switch (type) {
+            case 'text_delta':
+                // Accumulate raw text; use lightweight render while streaming
+                if (!contentEl._rawText) contentEl._rawText = '';
+                contentEl._rawText += data.delta || '';
+                contentEl.innerHTML = this.renderStreamingText(contentEl._rawText);
+                if (this.followAlong) this.scrollToBottom();
+                break;
+
+            case 'tool_call_start':
+                this.renderToolCallCard(assistantDiv, data.tool_call_id, data.name, data.args);
+                if (this.followAlong) this.scrollToBottom();
+                break;
+
+            case 'tool_call_result':
+                this.updateToolCallResult(data.tool_call_id, data.content, data.success, data.error);
+                if (this.followAlong) this.scrollToBottom();
+                break;
+
+            case 'confirmation_required':
+                this.showConfirmationPrompt(assistantDiv, data.tool_call_id, data.tool_name, data.args);
+                if (this.followAlong) this.scrollToBottom();
+                break;
+
+            case 'error':
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'message__error';
+                errorDiv.textContent = data.message || 'Unknown error';
+                assistantDiv.appendChild(errorDiv);
+                break;
+
+            case 'done':
+                // Streaming complete — do full markdown render on final text
+                if (contentEl._rawText) {
+                    contentEl.innerHTML = this.renderMarkdownLite(contentEl._rawText);
+                }
+                break;
+        }
+    }
+
+    createAssistantMessageContainer() {
+        const div = document.createElement('div');
+        div.className = 'message message--assistant';
+
+        const avatar = document.createElement('div');
+        avatar.className = 'message__avatar';
+        avatar.textContent = 'Agent';
+
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'message__body';
+
+        const content = document.createElement('div');
+        content.className = 'message__content';
+
+        contentWrapper.appendChild(content);
+        div.appendChild(avatar);
+        div.appendChild(contentWrapper);
+
+        this.elMessages.appendChild(div);
+        return div;
+    }
+
+    renderToolCallCard(parentEl, toolCallId, name, args) {
+        const card = document.createElement('div');
+        card.className = 'tool-call-card';
+        card.id = `tool-call-${toolCallId}`;
+
+        const header = document.createElement('div');
+        header.className = 'tool-call-card__header';
+        header.innerHTML = `
+            <span class="tool-call-card__icon">&#9881;</span>
+            <span class="tool-call-card__name">${this.escapeHtml(name)}</span>
+            <span class="tool-call-card__status tool-call-card__status--running">Running...</span>
+            <button class="tool-call-card__toggle" aria-label="Toggle details">&#9656;</button>
+        `;
+
+        const details = document.createElement('div');
+        details.className = 'tool-call-card__details';
+        details.style.display = 'none';
+
+        const argsBlock = document.createElement('pre');
+        argsBlock.className = 'tool-call-card__args';
+        argsBlock.textContent = JSON.stringify(args, null, 2);
+        details.appendChild(argsBlock);
+
+        // Toggle details on click
+        header.querySelector('.tool-call-card__toggle').addEventListener('click', () => {
+            const isHidden = details.style.display === 'none';
+            details.style.display = isHidden ? 'block' : 'none';
+            header.querySelector('.tool-call-card__toggle').innerHTML = isHidden ? '&#9662;' : '&#9656;';
+        });
+
+        card.appendChild(header);
+        card.appendChild(details);
+
+        // Insert into the assistant message body
+        const body = parentEl.querySelector('.message__body');
+        if (body) {
+            body.appendChild(card);
+        } else {
+            parentEl.appendChild(card);
+        }
+    }
+
+    updateToolCallResult(toolCallId, content, success, error) {
+        const card = document.getElementById(`tool-call-${toolCallId}`);
+        if (!card) return;
+
+        const statusEl = card.querySelector('.tool-call-card__status');
+        if (success) {
+            statusEl.textContent = 'Completed';
+            statusEl.className = 'tool-call-card__status tool-call-card__status--success';
+            card.classList.add('tool-call-card--success');
+        } else {
+            statusEl.textContent = error || 'Failed';
+            statusEl.className = 'tool-call-card__status tool-call-card__status--error';
+            card.classList.add('tool-call-card--error');
+        }
+
+        // Add result to details
+        const details = card.querySelector('.tool-call-card__details');
+        if (details && content) {
+            const resultBlock = document.createElement('div');
+            resultBlock.className = 'tool-call-card__result';
+
+            const resultLabel = document.createElement('div');
+            resultLabel.className = 'tool-call-card__result-label';
+            resultLabel.textContent = 'Result:';
+
+            const resultContent = document.createElement('pre');
+            resultContent.className = 'tool-call-card__result-content';
+            resultContent.textContent = content;
+
+            resultBlock.appendChild(resultLabel);
+            resultBlock.appendChild(resultContent);
+            details.appendChild(resultBlock);
+        }
+    }
+
+    showConfirmationPrompt(parentEl, toolCallId, toolName, args) {
+        const prompt = document.createElement('div');
+        prompt.className = 'confirmation-prompt';
+        prompt.id = `confirm-${toolCallId}`;
+
+        prompt.innerHTML = `
+            <div class="confirmation-prompt__header">
+                <span class="confirmation-prompt__icon">&#9888;</span>
+                <span class="confirmation-prompt__title">Confirmation Required</span>
+            </div>
+            <div class="confirmation-prompt__body">
+                <div class="confirmation-prompt__tool">${this.escapeHtml(toolName)}</div>
+                <pre class="confirmation-prompt__args">${this.escapeHtml(JSON.stringify(args, null, 2))}</pre>
+            </div>
+            <div class="confirmation-prompt__actions">
+                <button class="confirmation-prompt__btn confirmation-prompt__btn--allow">Allow</button>
+                <button class="confirmation-prompt__btn confirmation-prompt__btn--deny">Deny</button>
+            </div>
+        `;
+
+        // Wire buttons
+        prompt.querySelector('.confirmation-prompt__btn--allow').addEventListener('click', () => {
+            this.resolveConfirmation(toolCallId, true);
+            prompt.remove();
+        });
+        prompt.querySelector('.confirmation-prompt__btn--deny').addEventListener('click', () => {
+            this.resolveConfirmation(toolCallId, false);
+            prompt.remove();
+        });
+
+        const body = parentEl.querySelector('.message__body');
+        if (body) {
+            body.appendChild(prompt);
+        } else {
+            parentEl.appendChild(prompt);
+        }
+    }
+
+    async resolveConfirmation(toolCallId, confirmed) {
+        try {
+            await fetch(`/api/sessions/${this.currentSessionId}/confirm`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': this.csrfToken,
+                    ...(this.authToken ? {'Authorization': `Bearer ${this.authToken}`} : {}),
+                },
+                body: JSON.stringify({ tool_call_id: toolCallId, confirmed }),
+            });
         } catch (e) {
-            loadingEl.remove();
-            this.appendMessage('assistant', `Error: ${e.message}`);
+            console.error('Failed to resolve confirmation:', e);
+        }
+    }
+
+    setStreaming(active) {
+        this.isStreaming = active;
+        const indicator = document.getElementById('streamingIndicator');
+        if (indicator) {
+            indicator.style.display = active ? 'flex' : 'none';
+        }
+        this.updateFollowAlongButton();
+    }
+
+    updateFollowAlongButton() {
+        const btn = document.getElementById('btnFollowAlong');
+        if (!btn) return;
+        btn.classList.toggle('follow-along--active', this.followAlong);
+        btn.style.display = this.isStreaming ? 'flex' : 'none';
+    }
+
+    scrollToBottom() {
+        if (this.elMessages) {
+            this.elMessages.scrollTop = this.elMessages.scrollHeight;
         }
     }
 
     async selectSession(sessionId) {
         this.currentSessionId = sessionId;
+
+        // Set active workspace to match the session's workspace
+        const session = this.sessions.find(s => s.session_id === sessionId);
+        if (session) {
+            const wsId = (session.metadata && session.metadata.workspace_id) || 'global';
+            this.activeWorkspaceId = wsId;
+            if (wsId !== 'global') {
+                this.expandedWorkspaces.add(wsId);
+            }
+        }
+
         this.switchView('conversation');
         this.elAboutSection.style.display = 'none';
         this.elMessages.innerHTML = '';
 
         const detail = await this.fetchSessionDetail(sessionId);
         if (detail && detail.events) {
-            for (const event of detail.events) {
-                if (event.event_type === 'user_message') {
-                    this.appendMessage('user', event.payload.content || '');
-                } else if (event.event_type === 'assistant_message') {
-                    this.appendMessage('assistant', event.payload.content || '');
-                }
+            this.renderSessionEvents(detail.events);
+        }
+
+        this.render();
+    }
+
+    renderSessionEvents(events) {
+        this.elMessages.innerHTML = '';
+
+        let currentAssistantDiv = null;
+
+        for (const event of events) {
+            const type = event.event_type || event.type;
+            const payload = event.payload || event;
+
+            switch (type) {
+                case 'user_message':
+                    currentAssistantDiv = null;
+                    this.appendMessage('user', payload.content || payload.text || '');
+                    break;
+
+                case 'assistant_message':
+                    currentAssistantDiv = this.createAssistantMessageContainer();
+                    const content = currentAssistantDiv.querySelector('.message__content');
+                    content.innerHTML = this.renderMarkdownLite(payload.content || payload.text || '');
+                    break;
+
+                case 'tool_call_request':
+                    if (currentAssistantDiv) {
+                        this.renderToolCallCard(
+                            currentAssistantDiv,
+                            payload.tool_call_id || payload.id,
+                            payload.tool_name || payload.name,
+                            payload.arguments || payload.args || {}
+                        );
+                    }
+                    break;
+
+                case 'tool_call_result':
+                    this.updateToolCallResult(
+                        payload.tool_call_id || payload.id,
+                        payload.content || '',
+                        payload.success !== false,
+                        payload.error
+                    );
+                    break;
+
+                case 'confirmation':
+                    // Show resolved confirmation inline
+                    if (currentAssistantDiv) {
+                        const badge = document.createElement('div');
+                        badge.className = `confirmation-badge confirmation-badge--${payload.confirmed ? 'allowed' : 'denied'}`;
+                        badge.textContent = payload.confirmed ? 'Confirmed' : 'Denied';
+                        const body = currentAssistantDiv.querySelector('.message__body');
+                        if (body) body.appendChild(badge);
+                    }
+                    break;
             }
         }
 
-        this.renderSidebar();
+        this.scrollToBottom();
     }
 
     async searchInbox() {
@@ -611,7 +1025,7 @@ class AgentManagerApp {
         // Render dynamic project tabs
         this.elDynamicTabs.innerHTML = '';
 
-        const projects = this.workspaces.filter(ws => ws.type === 'project');
+        const projects = this.workspaces.filter(ws => ws.type === 'project' && !this.closedWorkspaces.has(ws.workspace_id));
         for (const ws of projects) {
             const tab = document.createElement('button');
             tab.className = 'workspace-tab';
@@ -629,7 +1043,7 @@ class AgentManagerApp {
             tab.addEventListener('click', (e) => {
                 if (e.target.closest('.workspace-tab__close')) {
                     e.stopPropagation();
-                    this.deleteWorkspace(ws.workspace_id);
+                    this.closeWorkspace(ws.workspace_id);
                 } else {
                     this.switchWorkspace(ws.workspace_id);
                 }
@@ -652,11 +1066,15 @@ class AgentManagerApp {
     renderSidebarWorkspaces() {
         this.elWorkspaceList.innerHTML = '';
 
-        const projects = this.workspaces.filter(ws => ws.type === 'project');
+        const projects = this.workspaces.filter(ws => ws.type === 'project' && !this.closedWorkspaces.has(ws.workspace_id));
         for (const ws of projects) {
+            const isExpanded = this.expandedWorkspaces.has(ws.workspace_id);
+            const isActive = ws.workspace_id === this.activeWorkspaceId;
+
+            // Workspace header row
             const el = document.createElement('div');
             el.className = 'sidebar__workspace-item';
-            if (ws.workspace_id === this.activeWorkspaceId) {
+            if (isActive) {
                 el.classList.add('sidebar__workspace-item--active');
             }
 
@@ -664,7 +1082,7 @@ class AgentManagerApp {
             const isSSH = backend !== 'local';
 
             el.innerHTML = `
-                <span class="sidebar__workspace-chevron">▸</span>
+                <span class="sidebar__workspace-chevron${isExpanded ? ' sidebar__workspace-chevron--expanded' : ''}">▸</span>
                 <span class="sidebar__workspace-status sidebar__workspace-status--connected"></span>
                 <span class="sidebar__workspace-name">${this.escapeHtml(ws.name)}</span>
                 ${isSSH
@@ -681,22 +1099,62 @@ class AgentManagerApp {
                 addBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     this.activeWorkspaceId = ws.workspace_id;
+                    // Auto-expand the workspace when creating a conversation in it
+                    this.expandedWorkspaces.add(ws.workspace_id);
                     this.createSession();
                 });
             }
 
             this.elWorkspaceList.appendChild(el);
+
+            // Nested conversations (only when expanded)
+            if (isExpanded) {
+                const wsSessions = this.sessions.filter(s => {
+                    const wsId = (s.metadata && s.metadata.workspace_id) || 'global';
+                    return wsId === ws.workspace_id;
+                });
+
+                const container = document.createElement('div');
+                container.className = 'sidebar__workspace-sessions';
+
+                for (const session of wsSessions) {
+                    const sEl = document.createElement('div');
+                    sEl.className = 'sidebar__conversation-item sidebar__conversation-item--nested';
+                    if (session.session_id === this.currentSessionId) {
+                        sEl.classList.add('sidebar__conversation-item--active');
+                    }
+
+                    const title = session.last_message
+                        ? session.last_message.substring(0, 30) + (session.last_message.length > 30 ? '...' : '')
+                        : `Session ${session.session_id.substring(0, 8)}...`;
+
+                    // Show a spinning indicator if streaming on this session
+                    const isStreaming = this.isStreaming && session.session_id === this.currentSessionId;
+                    const indicator = isStreaming
+                        ? '<span class="sidebar__session-indicator sidebar__session-indicator--active" title="Streaming">●</span>'
+                        : '';
+
+                    sEl.innerHTML = `<span class="sidebar__conversation-title">${this.escapeHtml(title)}</span>${indicator}`;
+
+                    sEl.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.selectSession(session.session_id);
+                    });
+                    container.appendChild(sEl);
+                }
+
+                this.elWorkspaceList.appendChild(container);
+            }
         }
     }
 
     renderPlaygroundSessions() {
         this.elPlaygroundList.innerHTML = '';
 
-        // Show sessions scoped to the active workspace
-        const targetWsId = this.activeWorkspaceId;
+        // Only show sessions that belong to the global/playground workspace
         const filtered = this.sessions.filter(s => {
             const wsId = (s.metadata && s.metadata.workspace_id) || 'global';
-            return wsId === targetWsId;
+            return wsId === 'global';
         });
 
         for (const session of filtered) {
@@ -710,7 +1168,7 @@ class AgentManagerApp {
                 ? session.last_message.substring(0, 30) + (session.last_message.length > 30 ? '...' : '')
                 : `Session ${session.session_id.substring(0, 8)}...`;
 
-            el.innerHTML = `<span class="sidebar__workspace-name">${this.escapeHtml(title)}</span>`;
+            el.innerHTML = `<span class="sidebar__conversation-title">${this.escapeHtml(title)}</span>`;
 
             el.addEventListener('click', () => this.selectSession(session.session_id));
             this.elPlaygroundList.appendChild(el);
@@ -778,6 +1236,140 @@ class AgentManagerApp {
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    }
+
+    renderStreamingText(text) {
+        // Lightweight render for in-progress streaming — handles line breaks and code blocks
+        // but skips bold/italic since tokens arrive incrementally and markers are incomplete
+        const esc = (s) => this.escapeHtml(s);
+
+        // Handle completed code blocks
+        text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+            return `<pre class="md-code-block"><code class="md-lang-${esc(lang || 'text')}">${esc(code.replace(/\n$/, ''))}</code></pre>`;
+        });
+
+        // Handle in-progress code block (still streaming)
+        text = text.replace(/```(\w*)\n([\s\S]*)$/g, (_, lang, code) => {
+            return `<pre class="md-code-block md-code-block--streaming"><code class="md-lang-${esc(lang || 'text')}">${esc(code)}</code></pre>`;
+        });
+
+        // Split remaining text into lines, escape and join with <br>
+        // (don't try to parse bold/italic/headers mid-stream)
+        const parts = text.split(/(<pre[\s\S]*?<\/pre>)/g);
+        return parts.map(part => {
+            if (part.startsWith('<pre')) return part; // already rendered code block
+            return esc(part).replace(/\n/g, '<br>');
+        }).join('');
+    }
+
+    renderMarkdownLite(text) {
+        // Lightweight markdown renderer — no dependencies
+        // Handles: code blocks, inline code, headers, bold, italic, lists, links, line breaks
+        const esc = (s) => this.escapeHtml(s);
+
+        // Extract fenced code blocks first to protect them from other processing
+        const codeBlocks = [];
+        text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+            const idx = codeBlocks.length;
+            codeBlocks.push(`<pre class="md-code-block"><code class="md-lang-${esc(lang || 'text')}">${esc(code.replace(/\n$/, ''))}</code></pre>`);
+            return `\x00CODEBLOCK${idx}\x00`;
+        });
+
+        // Handle incomplete code blocks (still streaming)
+        text = text.replace(/```(\w*)\n([\s\S]*)$/g, (_, lang, code) => {
+            const idx = codeBlocks.length;
+            codeBlocks.push(`<pre class="md-code-block md-code-block--streaming"><code class="md-lang-${esc(lang || 'text')}">${esc(code)}</code></pre>`);
+            return `\x00CODEBLOCK${idx}\x00`;
+        });
+
+        // Extract inline code
+        const inlineCode = [];
+        text = text.replace(/`([^`]+)`/g, (_, code) => {
+            const idx = inlineCode.length;
+            inlineCode.push(`<code class="md-inline-code">${esc(code)}</code>`);
+            return `\x00INLINE${idx}\x00`;
+        });
+
+        // Process line by line
+        const lines = text.split('\n');
+        const result = [];
+        let inList = false;
+
+        for (let line of lines) {
+            // Check for code block placeholder
+            const blockMatch = line.match(/^\x00CODEBLOCK(\d+)\x00$/);
+            if (blockMatch) {
+                if (inList) { result.push('</ul>'); inList = false; }
+                result.push(codeBlocks[parseInt(blockMatch[1])]);
+                continue;
+            }
+
+            // Escape HTML in normal lines
+            line = esc(line);
+
+            // Restore inline code placeholders (already escaped inside)
+            line = line.replace(/\x00INLINE(\d+)\x00/g, (_, idx) => inlineCode[parseInt(idx)]);
+
+            // Headers
+            if (/^#{4,6}\s/.test(line)) {
+                if (inList) { result.push('</ul>'); inList = false; }
+                const level = line.match(/^(#+)/)[1].length;
+                line = line.replace(/^#+\s+/, '');
+                result.push(`<h${level} class="md-heading">${line}</h${level}>`);
+                continue;
+            }
+            if (/^###\s/.test(line)) {
+                if (inList) { result.push('</ul>'); inList = false; }
+                result.push(`<h3 class="md-heading">${line.replace(/^###\s+/, '')}</h3>`);
+                continue;
+            }
+            if (/^##\s/.test(line)) {
+                if (inList) { result.push('</ul>'); inList = false; }
+                result.push(`<h2 class="md-heading">${line.replace(/^##\s+/, '')}</h2>`);
+                continue;
+            }
+            if (/^#\s/.test(line)) {
+                if (inList) { result.push('</ul>'); inList = false; }
+                result.push(`<h1 class="md-heading">${line.replace(/^#\s+/, '')}</h1>`);
+                continue;
+            }
+
+            // Unordered lists
+            if (/^[\s]*[-*]\s/.test(line)) {
+                if (!inList) { result.push('<ul class="md-list">'); inList = true; }
+                result.push(`<li>${line.replace(/^[\s]*[-*]\s+/, '')}</li>`);
+                continue;
+            }
+
+            // Ordered lists
+            if (/^[\s]*\d+\.\s/.test(line)) {
+                if (!inList) { result.push('<ol class="md-list">'); inList = true; }
+                result.push(`<li>${line.replace(/^[\s]*\d+\.\s+/, '')}</li>`);
+                continue;
+            }
+
+            if (inList) { result.push('</ul>'); inList = false; }
+
+            // Bold and italic
+            line = line.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+            line = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            line = line.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+            // Links
+            line = line.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+            // Empty line = paragraph break
+            if (line.trim() === '') {
+                result.push('<br>');
+                continue;
+            }
+
+            result.push(`<p class="md-paragraph">${line}</p>`);
+        }
+
+        if (inList) result.push('</ul>');
+
+        return result.join('\n');
     }
 
     formatDate(dateStr) {
