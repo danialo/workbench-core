@@ -17,7 +17,27 @@
     <header class="top-bar" id="topBar">
         <div class="top-bar__left">
             <span class="top-bar__brand">Zero-G</span>
-            <button class="top-bar__menu-item" id="menuFile">File</button>
+            <div class="top-bar__menu-wrapper" id="menuFileWrapper">
+                <button class="top-bar__menu-item" id="menuFile">File</button>
+                <div class="top-bar__dropdown" id="fileDropdown">
+                    <button class="top-bar__dropdown-item" id="menuStartConversation">
+                        <span class="top-bar__dropdown-icon">💬</span>
+                        <span class="top-bar__dropdown-label">Start Conversation</span>
+                        <span class="top-bar__dropdown-shortcut">Ctrl+N</span>
+                    </button>
+                    <button class="top-bar__dropdown-item" id="menuNewEditor">
+                        <span class="top-bar__dropdown-icon">📝</span>
+                        <span class="top-bar__dropdown-label">New Editor</span>
+                        <span class="top-bar__dropdown-shortcut">Ctrl+E</span>
+                    </button>
+                    <div class="top-bar__dropdown-divider"></div>
+                    <button class="top-bar__dropdown-item" id="menuOpenWorkspace">
+                        <span class="top-bar__dropdown-icon">📁</span>
+                        <span class="top-bar__dropdown-label">Open Workspace</span>
+                        <span class="top-bar__dropdown-shortcut">Ctrl+O</span>
+                    </button>
+                </div>
+            </div>
             <button class="top-bar__menu-item" id="menuEdit">Edit</button>
             <button class="top-bar__menu-item" id="menuView">View</button>
         </div>
@@ -34,6 +54,65 @@
             </div>
         </div>
     </header>
+
+    <!-- WORKSPACE TAB BAR -->
+    <div class="workspace-tabs" id="workspaceTabs">
+        <button class="workspace-tab workspace-tab--active workspace-tab--global" id="tabGlobal" data-ws-id="global">
+            <span class="workspace-tab__icon">🌐</span>
+            <span class="workspace-tab__label">Global</span>
+        </button>
+        <div class="workspace-tabs__dynamic" id="dynamicTabs"></div>
+        <button class="workspace-tabs__new-btn" id="btnNewWorkspace" title="New Workspace">
+            <span>+</span>
+        </button>
+    </div>
+
+    <!-- NEW WORKSPACE DIALOG -->
+    <div class="dialog-overlay" id="newWorkspaceDialog" style="display:none">
+        <div class="dialog">
+            <div class="dialog__header">
+                <h2 class="dialog__title">New Workspace</h2>
+                <button class="dialog__close" id="btnCloseDialog">✕</button>
+            </div>
+            <div class="dialog__body">
+                <label class="dialog__label">Name
+                    <input type="text" class="dialog__input" id="wsName" placeholder="e.g. prod-api" autofocus>
+                </label>
+                <label class="dialog__label">Directory Path
+                    <div class="dialog__input-row">
+                        <input type="text" class="dialog__input dialog__input--flex" id="wsPath"
+                            placeholder="e.g. /opt/app or ~/projects/api">
+                        <button class="dialog__btn dialog__btn--browse" id="btnBrowse" type="button">Browse…</button>
+                    </div>
+                </label>
+                <div class="dialog__browser" id="dirBrowser" style="display:none">
+                    <div class="dir-browser__header">
+                        <button class="dir-browser__up-btn" id="btnDirUp" title="Go up">↑</button>
+                        <span class="dir-browser__path" id="dirBrowserPath">/</span>
+                    </div>
+                    <div class="dir-browser__list" id="dirBrowserList"></div>
+                    <div class="dir-browser__footer">
+                        <button class="dialog__btn dialog__btn--secondary dialog__btn--sm dir-browser__new-folder-btn"
+                            id="btnNewFolder">+ New Folder</button>
+                        <span class="dir-browser__footer-spacer"></span>
+                        <button class="dialog__btn dialog__btn--secondary dialog__btn--sm"
+                            id="btnDirCancel">Cancel</button>
+                        <button class="dialog__btn dialog__btn--primary dialog__btn--sm" id="btnDirSelect">Select This
+                            Folder</button>
+                    </div>
+                </div>
+                <label class="dialog__label">Backend
+                    <select class="dialog__select" id="wsBackend">
+                        <option value="local">Local</option>
+                    </select>
+                </label>
+            </div>
+            <div class="dialog__footer">
+                <button class="dialog__btn dialog__btn--secondary" id="btnCancelWorkspace">Cancel</button>
+                <button class="dialog__btn dialog__btn--primary" id="btnCreateWorkspace">Create Workspace</button>
+            </div>
+        </div>
+    </div>
 
     <!-- MAIN LAYOUT -->
     <div class="layout">

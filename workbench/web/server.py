@@ -26,6 +26,7 @@ from workbench.web.middleware import (
     RateLimitMiddleware,
     SecurityHeadersMiddleware,
 )
+from workbench.workspace import WorkspaceManager, GLOBAL_WORKSPACE_ID
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ _STATIC_DIR = _WEB_DIR / "static"
 class CreateSessionRequest(BaseModel):
     """Request to create a new conversation session."""
     workspace: str = Field(default="playground", description="Target workspace/backend")
+    workspace_id: str = Field(default="", description="Workspace ID to scope session to")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Optional session metadata")
 
 
@@ -80,6 +82,28 @@ class WorkspaceInfo(BaseModel):
     username: str = ""
 
 
+class CreateWorkspaceRequest(BaseModel):
+    """Request to create a new project workspace."""
+    name: str = Field(..., min_length=1, max_length=100)
+    path: str = Field(default="", description="Directory scope")
+    backend: str = Field(default="local", description="Backend target")
+    config_overrides: dict[str, Any] = Field(default_factory=dict)
+    tools_enabled: list[str] = Field(default_factory=list)
+    tools_disabled: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class UpdateWorkspaceRequest(BaseModel):
+    """Request to update a workspace."""
+    name: str | None = None
+    path: str | None = None
+    backend: str | None = None
+    config_overrides: dict[str, Any] | None = None
+    tools_enabled: list[str] | None = None
+    tools_disabled: list[str] | None = None
+    metadata: dict[str, Any] | None = None
+
+
 class ToolInfo(BaseModel):
     """Registered tool info."""
     name: str
@@ -108,6 +132,7 @@ def create_app(
     backend_router: Any = None,
     policy: Any = None,
     orchestrator: Any = None,
+    workspace_manager: WorkspaceManager | None = None,
     auth_token: str | None = None,
 ) -> FastAPI:
     """
@@ -145,6 +170,12 @@ def create_app(
     app.state.backend_router = backend_router
     app.state.policy = policy
     app.state.orchestrator = orchestrator
+
+    # Workspace manager (JSON persistence)
+    if workspace_manager is None:
+        workspace_manager = WorkspaceManager()
+        workspace_manager.load()
+    app.state.workspace_manager = workspace_manager
 
     # ---- Security middleware (order matters: outermost runs first) ----
     app.add_middleware(SecurityHeadersMiddleware)
@@ -229,10 +260,11 @@ def create_app(
         if store is None:
             raise HTTPException(503, "Session store not available")
 
-        metadata = {**req.metadata, "workspace": req.workspace}
+        ws_id = req.workspace_id or GLOBAL_WORKSPACE_ID
+        metadata = {**req.metadata, "workspace": req.workspace, "workspace_id": ws_id}
         session_id = await store.create_session(metadata)
-        logger.info("Created session %s for workspace %s", session_id, req.workspace)
-        return {"session_id": session_id, "workspace": req.workspace}
+        logger.info("Created session %s for workspace %s", session_id, ws_id)
+        return {"session_id": session_id, "workspace": req.workspace, "workspace_id": ws_id}
 
     @app.get("/api/sessions/{session_id}")
     async def get_session(session_id: str):
@@ -362,47 +394,108 @@ def create_app(
 
     @app.get("/api/workspaces")
     async def list_workspaces():
-        """
-        List all available workspaces/backends.
-
-        Includes local backend and all registered SSH targets.
-        """
-        workspaces: list[dict] = []
-
-        # Always include local
-        workspaces.append(WorkspaceInfo(
-            name="local",
-            type="local",
-            connected=True,
-        ).model_dump())
-
-        # SSH targets from backend router
-        router = app.state.backend_router
-        if router is not None:
-            for target in router.targets:
-                if target not in ("localhost", "local", "127.0.0.1"):
-                    workspaces.append(WorkspaceInfo(
-                        name=target,
-                        type="ssh",
-                        connected=False,
-                    ).model_dump())
-
-        # SSH hosts from config
-        cfg = app.state.config
-        if cfg is not None and hasattr(cfg, "backends"):
-            for host_cfg in cfg.backends.ssh_hosts:
-                name = host_cfg.get("name", host_cfg.get("host", ""))
-                # Don't duplicate if already in router
-                if name and not any(w["name"] == name for w in workspaces):
-                    workspaces.append(WorkspaceInfo(
-                        name=name,
-                        type="ssh",
-                        host=host_cfg.get("host", ""),
-                        port=host_cfg.get("port", 22),
-                        username=host_cfg.get("username", ""),
-                    ).model_dump())
-
+        """List all workspaces (global + projects)."""
+        mgr: WorkspaceManager = app.state.workspace_manager
+        workspaces = [ws.to_dict() for ws in mgr.list_all()]
         return {"workspaces": workspaces}
+
+    @app.post("/api/workspaces", status_code=201)
+    async def create_workspace(req: CreateWorkspaceRequest):
+        """Create a new project workspace."""
+        mgr: WorkspaceManager = app.state.workspace_manager
+        ws = mgr.create(
+            name=req.name,
+            path=req.path,
+            backend=req.backend,
+            config_overrides=req.config_overrides,
+            tools_enabled=req.tools_enabled,
+            tools_disabled=req.tools_disabled,
+            metadata=req.metadata,
+        )
+        return ws.to_dict()
+
+    @app.get("/api/workspaces/{workspace_id}")
+    async def get_workspace(workspace_id: str):
+        """Get workspace detail."""
+        mgr: WorkspaceManager = app.state.workspace_manager
+        ws = mgr.get(workspace_id)
+        if ws is None:
+            raise HTTPException(404, f"Workspace not found: {workspace_id}")
+        return ws.to_dict()
+
+    @app.put("/api/workspaces/{workspace_id}")
+    async def update_workspace(workspace_id: str, req: UpdateWorkspaceRequest):
+        """Update a workspace's configuration."""
+        mgr: WorkspaceManager = app.state.workspace_manager
+        fields = {k: v for k, v in req.model_dump().items() if v is not None}
+        ws = mgr.update(workspace_id, **fields)
+        if ws is None:
+            raise HTTPException(404, f"Workspace not found: {workspace_id}")
+        return ws.to_dict()
+
+    @app.delete("/api/workspaces/{workspace_id}")
+    async def delete_workspace(workspace_id: str):
+        """Delete a project workspace. Cannot delete global."""
+        mgr: WorkspaceManager = app.state.workspace_manager
+        if workspace_id == GLOBAL_WORKSPACE_ID:
+            raise HTTPException(400, "Cannot delete global workspace")
+        if not mgr.delete(workspace_id):
+            raise HTTPException(404, f"Workspace not found: {workspace_id}")
+        return {"status": "deleted", "workspace_id": workspace_id}
+
+    @app.post("/api/workspaces/{workspace_id}/open")
+    async def open_workspace(workspace_id: str):
+        """Mark workspace as active (updates last_opened)."""
+        mgr: WorkspaceManager = app.state.workspace_manager
+        ws = mgr.open_workspace(workspace_id)
+        if ws is None:
+            raise HTTPException(404, f"Workspace not found: {workspace_id}")
+        return ws.to_dict()
+
+    @app.get("/api/workspaces/{workspace_id}/sessions")
+    async def list_workspace_sessions(workspace_id: str):
+        """List sessions scoped to a workspace."""
+        store = app.state.session_store
+        if store is None:
+            return {"sessions": [], "workspace_id": workspace_id}
+
+        sessions = await store.list_sessions()
+        result = []
+        for s in sessions:
+            meta = {}
+            if s.get("metadata"):
+                try:
+                    meta = json.loads(s["metadata"]) if isinstance(s["metadata"], str) else s["metadata"]
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+
+            # Filter by workspace_id
+            session_ws = meta.get("workspace_id", GLOBAL_WORKSPACE_ID)
+            if session_ws != workspace_id:
+                continue
+
+            events = await store.get_events(s["session_id"])
+            user_messages = [e for e in events if e.event_type == "user_message"]
+            last_msg = user_messages[-1].payload.get("content", "")[:100] if user_messages else ""
+
+            result.append(SessionSummary(
+                session_id=s["session_id"],
+                created_at=s.get("created_at", ""),
+                metadata=meta,
+                message_count=len(user_messages),
+                last_message=last_msg,
+                workspace=meta.get("workspace", "playground"),
+                status=meta.get("status", "active"),
+            ).model_dump())
+
+        return {"sessions": result, "workspace_id": workspace_id}
+
+    @app.get("/api/workspaces/{workspace_id}/config")
+    async def get_workspace_config(workspace_id: str):
+        """Get effective config for a workspace (global merged with project overrides)."""
+        mgr: WorkspaceManager = app.state.workspace_manager
+        config = mgr.get_effective_config(workspace_id)
+        return {"config": config, "workspace_id": workspace_id}
 
     @app.post("/api/workspaces/{target}/connect")
     async def connect_workspace(target: str):
@@ -417,6 +510,71 @@ def create_app(
         except Exception as e:
             logger.error("Connection to %s failed: %s", target, e)
             raise HTTPException(502, f"Connection failed: {e}")
+
+    # ---- File Browser ----
+
+    @app.get("/api/browse")
+    async def browse_directory(path: str = Query("~", description="Directory to browse")):
+        """
+        List subdirectories for the workspace directory picker.
+
+        Returns the resolved path and a list of child directories.
+        """
+        import os
+        try:
+            resolved = str(Path(path).expanduser().resolve())
+            if not Path(resolved).is_dir():
+                raise HTTPException(400, f"Not a directory: {path}")
+
+            entries = []
+            try:
+                for entry in sorted(Path(resolved).iterdir()):
+                    if entry.is_dir() and not entry.name.startswith('.'):
+                        entries.append({
+                            "name": entry.name,
+                            "path": str(entry),
+                            "has_children": any(
+                                c.is_dir() for c in entry.iterdir()
+                                if not c.name.startswith('.')
+                            ) if os.access(str(entry), os.R_OK) else False,
+                        })
+            except PermissionError:
+                pass  # Skip unreadable dirs
+
+            # Parent path for "go up"
+            parent = str(Path(resolved).parent)
+
+            return {
+                "path": resolved,
+                "parent": parent if parent != resolved else None,
+                "entries": entries,
+            }
+        except Exception as e:
+            raise HTTPException(400, f"Browse error: {e}")
+
+    @app.post("/api/browse/mkdir")
+    async def make_directory(request: Request):
+        """Create a new subdirectory inside a given parent path."""
+        body = await request.json()
+        parent = body.get("parent", "")
+        name = body.get("name", "").strip()
+
+        if not parent or not name:
+            raise HTTPException(400, "parent and name are required")
+
+        # Basic safety: no path separators or special names
+        if "/" in name or "\\" in name or name in (".", ".."):
+            raise HTTPException(400, "Invalid folder name")
+
+        target = Path(parent).expanduser().resolve() / name
+        if target.exists():
+            raise HTTPException(409, f"Already exists: {name}")
+
+        try:
+            target.mkdir(parents=False, exist_ok=False)
+            return {"path": str(target), "name": name}
+        except Exception as e:
+            raise HTTPException(400, f"Failed to create folder: {e}")
 
     # ---- Inbox ----
 

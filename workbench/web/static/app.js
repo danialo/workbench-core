@@ -2,22 +2,22 @@
  * Agent Manager — Client-side application
  *
  * Manages UI state, API communication (with auth + CSRF),
- * sidebar interactions, conversation rendering, and inbox search.
+ * workspace tabs, sidebar interactions, conversation rendering,
+ * and inbox search.
  */
 
 class AgentManagerApp {
     constructor() {
         // State
         this.csrfToken = '';
-        this.authToken = '';  // Set via config or login flow
+        this.authToken = '';
         this.sessions = [];
         this.workspaces = [];
+        this.activeWorkspaceId = 'global';
         this.currentSessionId = null;
-        this.currentWorkspace = 'playground';
         this.currentView = 'conversation'; // 'conversation' | 'inbox'
         this.searchDebounceTimer = null;
 
-        // Boot
         this.init();
     }
 
@@ -44,6 +44,39 @@ class AgentManagerApp {
         this.elNewPlayground = document.getElementById('btnNewPlayground');
         this.elOpenWorkspace = document.getElementById('btnOpenWorkspace');
 
+        // File menu
+        this.elMenuFile = document.getElementById('menuFile');
+        this.elFileDropdown = document.getElementById('fileDropdown');
+        this.elMenuStartConversation = document.getElementById('menuStartConversation');
+        this.elMenuNewEditor = document.getElementById('menuNewEditor');
+        this.elMenuOpenWorkspace = document.getElementById('menuOpenWorkspace');
+
+        // Workspace tabs
+        this.elDynamicTabs = document.getElementById('dynamicTabs');
+        this.elTabGlobal = document.getElementById('tabGlobal');
+        this.elBtnNewWorkspace = document.getElementById('btnNewWorkspace');
+
+        // New workspace dialog
+        this.elDialog = document.getElementById('newWorkspaceDialog');
+        this.elWsName = document.getElementById('wsName');
+        this.elWsPath = document.getElementById('wsPath');
+        this.elWsBackend = document.getElementById('wsBackend');
+        this.elBtnCloseDialog = document.getElementById('btnCloseDialog');
+        this.elBtnCancelWorkspace = document.getElementById('btnCancelWorkspace');
+        this.elBtnCreateWorkspace = document.getElementById('btnCreateWorkspace');
+
+        // Directory browser
+        this.elBtnBrowse = document.getElementById('btnBrowse');
+        this.elDirBrowser = document.getElementById('dirBrowser');
+        this.elDirBrowserPath = document.getElementById('dirBrowserPath');
+        this.elDirBrowserList = document.getElementById('dirBrowserList');
+        this.elBtnDirUp = document.getElementById('btnDirUp');
+        this.elBtnDirCancel = document.getElementById('btnDirCancel');
+        this.elBtnDirSelect = document.getElementById('btnDirSelect');
+        this.elBtnNewFolder = document.getElementById('btnNewFolder');
+        this.browsePath = null;
+        this.browseParent = null;
+
         // Conversation view
         this.elConversationView = document.getElementById('conversationView');
         this.elCurrentWorkspace = document.getElementById('currentWorkspace');
@@ -66,6 +99,49 @@ class AgentManagerApp {
     // ---- Event Binding ----
 
     bindEvents() {
+        // File menu
+        this.elMenuFile.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleFileMenu();
+        });
+        this.elMenuStartConversation.addEventListener('click', () => {
+            this.closeFileMenu();
+            this.createSession();
+        });
+        this.elMenuNewEditor.addEventListener('click', () => {
+            this.closeFileMenu();
+            console.log('New Editor (not yet implemented)');
+        });
+        this.elMenuOpenWorkspace.addEventListener('click', () => {
+            this.closeFileMenu();
+            this.openNewWorkspaceDialog();
+        });
+        // Close menu on outside click
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#menuFileWrapper')) {
+                this.closeFileMenu();
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'n' || e.key === 'N') {
+                    e.preventDefault();
+                    this.closeFileMenu();
+                    this.createSession();
+                } else if (e.key === 'e' || e.key === 'E') {
+                    e.preventDefault();
+                    this.closeFileMenu();
+                    console.log('New Editor (not yet implemented)');
+                } else if (e.key === 'o' || e.key === 'O') {
+                    e.preventDefault();
+                    this.closeFileMenu();
+                    this.openNewWorkspaceDialog();
+                }
+            }
+        });
+
         // Start conversation
         this.elStartBtn.addEventListener('click', () => this.createSession());
         this.elNewPlayground.addEventListener('click', () => this.createSession());
@@ -83,7 +159,6 @@ class AgentManagerApp {
         this.elMessageInput.addEventListener('input', () => {
             this.elMessageInput.style.height = 'auto';
             this.elMessageInput.style.height = Math.min(this.elMessageInput.scrollHeight, 200) + 'px';
-            // Toggle send button active state
             this.elSendBtn.classList.toggle('input-box__send-btn--active', this.elMessageInput.value.trim().length > 0);
         });
 
@@ -96,6 +171,40 @@ class AgentManagerApp {
         this.elInboxSearch.addEventListener('input', () => {
             clearTimeout(this.searchDebounceTimer);
             this.searchDebounceTimer = setTimeout(() => this.searchInbox(), 250);
+        });
+
+        // Workspace tabs
+        this.elTabGlobal.addEventListener('click', () => this.switchWorkspace('global'));
+        this.elBtnNewWorkspace.addEventListener('click', () => this.openNewWorkspaceDialog());
+        if (this.elOpenWorkspace) {
+            this.elOpenWorkspace.addEventListener('click', () => this.openNewWorkspaceDialog());
+        }
+
+        // Dialog
+        this.elBtnCloseDialog.addEventListener('click', () => this.closeNewWorkspaceDialog());
+        this.elBtnCancelWorkspace.addEventListener('click', () => this.closeNewWorkspaceDialog());
+        this.elBtnCreateWorkspace.addEventListener('click', () => this.handleCreateWorkspace());
+        this.elDialog.addEventListener('click', (e) => {
+            if (e.target === this.elDialog) this.closeNewWorkspaceDialog();
+        });
+
+        // Directory browser
+        this.elBtnBrowse.addEventListener('click', () => this.openDirBrowser());
+        this.elBtnDirUp.addEventListener('click', () => {
+            if (this.browseParent) this.browseDirectory(this.browseParent);
+        });
+        this.elBtnDirCancel.addEventListener('click', () => this.closeDirBrowser());
+        this.elBtnNewFolder.addEventListener('click', () => this.promptNewFolder());
+        this.elBtnDirSelect.addEventListener('click', () => {
+            if (this.browsePath) {
+                this.elWsPath.value = this.browsePath;
+                // Auto-fill name from directory name if empty
+                if (!this.elWsName.value.trim()) {
+                    const dirName = this.browsePath.split('/').filter(Boolean).pop() || '';
+                    this.elWsName.value = dirName;
+                }
+            }
+            this.closeDirBrowser();
         });
     }
 
@@ -119,7 +228,7 @@ class AgentManagerApp {
             const resp = await fetch(path, { ...options, headers });
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({ error: resp.statusText }));
-                throw new Error(err.error || `HTTP ${resp.status}`);
+                throw new Error(err.error || err.detail || `HTTP ${resp.status}`);
             }
             return await resp.json();
         } catch (e) {
@@ -144,7 +253,7 @@ class AgentManagerApp {
             const data = await this.apiFetch('/api/workspaces');
             this.workspaces = data.workspaces || [];
         } catch (e) {
-            this.workspaces = [{ name: 'local', type: 'local', connected: true }];
+            this.workspaces = [];
         }
     }
 
@@ -165,13 +274,224 @@ class AgentManagerApp {
         }
     }
 
-    // ---- Actions ----
+    // ---- Workspace Actions ----
+
+    async switchWorkspace(workspaceId) {
+        this.activeWorkspaceId = workspaceId;
+        this.currentSessionId = null;
+
+        // Notify backend
+        try {
+            await this.apiFetch(`/api/workspaces/${workspaceId}/open`, { method: 'POST' });
+        } catch (e) {
+            console.warn('Failed to mark workspace as opened:', e);
+        }
+
+        this.elMessages.innerHTML = '';
+        this.elAboutSection.style.display = '';
+        this.switchView('conversation');
+        this.render();
+    }
+
+    // ---- File Menu ----
+
+    toggleFileMenu() {
+        const isOpen = this.elFileDropdown.classList.contains('top-bar__dropdown--open');
+        if (isOpen) {
+            this.closeFileMenu();
+        } else {
+            this.elFileDropdown.classList.add('top-bar__dropdown--open');
+            this.elMenuFile.classList.add('top-bar__menu-item--active');
+        }
+    }
+
+    closeFileMenu() {
+        this.elFileDropdown.classList.remove('top-bar__dropdown--open');
+        this.elMenuFile.classList.remove('top-bar__menu-item--active');
+    }
+
+    openNewWorkspaceDialog() {
+        this.elDialog.style.display = 'flex';
+        this.elWsName.value = '';
+        this.elWsPath.value = '';
+        this.elWsBackend.value = 'local';
+        setTimeout(() => this.elWsName.focus(), 50);
+    }
+
+    closeNewWorkspaceDialog() {
+        this.elDialog.style.display = 'none';
+        this.closeDirBrowser();
+    }
+
+    // ---- Directory Browser ----
+
+    openDirBrowser() {
+        this.elDirBrowser.style.display = '';
+        const startPath = this.elWsPath.value.trim() || '~';
+        this.browseDirectory(startPath);
+    }
+
+    closeDirBrowser() {
+        this.elDirBrowser.style.display = 'none';
+    }
+
+    async promptNewFolder() {
+        if (!this.browsePath) return;
+
+        // Insert a row between the file list and footer
+        const footer = this.elBtnNewFolder.closest('.dir-browser__footer');
+        const row = document.createElement('div');
+        row.className = 'dir-browser__new-folder-row';
+        row.innerHTML = `
+            <input type="text" class="dialog__input dir-browser__new-folder-input" placeholder="Folder name" />
+            <button class="dialog__btn dialog__btn--primary dialog__btn--sm">Create</button>
+            <button class="dialog__btn dialog__btn--secondary dialog__btn--sm">Cancel</button>
+        `;
+        footer.parentElement.insertBefore(row, footer);
+
+        const input = row.querySelector('input');
+        const createBtn = row.querySelector('.dialog__btn--primary');
+        const cancelBtn = row.querySelector('.dialog__btn--secondary');
+        input.focus();
+
+        const cleanup = () => row.remove();
+
+        const create = async () => {
+            const name = input.value.trim();
+            if (!name) { cleanup(); return; }
+
+            try {
+                createBtn.textContent = '...';
+                createBtn.disabled = true;
+                await this.apiFetch('/api/browse/mkdir', {
+                    method: 'POST',
+                    body: JSON.stringify({ parent: this.browsePath, name }),
+                });
+                cleanup();
+                await this.browseDirectory(this.browsePath);
+            } catch (e) {
+                input.classList.add('dir-browser__new-folder-input--error');
+                input.value = '';
+                input.placeholder = e.message || 'Failed';
+                createBtn.textContent = 'Create';
+                createBtn.disabled = false;
+                setTimeout(() => cleanup(), 1500);
+            }
+        };
+
+        createBtn.addEventListener('click', create);
+        cancelBtn.addEventListener('click', cleanup);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); create(); }
+            if (e.key === 'Escape') cleanup();
+        });
+    }
+
+    async browseDirectory(path) {
+        try {
+            const data = await this.apiFetch(`/api/browse?path=${encodeURIComponent(path)}`);
+            this.browsePath = data.path;
+            this.browseParent = data.parent;
+
+            this.elDirBrowserPath.textContent = data.path;
+            this.elBtnDirUp.disabled = !data.parent;
+
+            this.renderDirEntries(data.entries || []);
+        } catch (e) {
+            console.error('Browse failed:', e);
+            this.elDirBrowserList.innerHTML = `<div class="dir-browser__empty">Could not read directory</div>`;
+        }
+    }
+
+    renderDirEntries(entries) {
+        this.elDirBrowserList.innerHTML = '';
+
+        if (entries.length === 0) {
+            this.elDirBrowserList.innerHTML = '<div class="dir-browser__empty">No subdirectories</div>';
+            return;
+        }
+
+        for (const entry of entries) {
+            const el = document.createElement('div');
+            el.className = 'dir-browser__entry';
+            el.innerHTML = `
+                <span class="dir-browser__entry-icon">📁</span>
+                <span class="dir-browser__entry-name">${this.escapeHtml(entry.name)}</span>
+                ${entry.has_children ? '<span class="dir-browser__entry-arrow">▸</span>' : ''}
+            `;
+
+            // Single click selects path
+            el.addEventListener('click', () => {
+                // Remove previous selection
+                this.elDirBrowserList.querySelectorAll('.dir-browser__entry--selected')
+                    .forEach(s => s.classList.remove('dir-browser__entry--selected'));
+                el.classList.add('dir-browser__entry--selected');
+                this.browsePath = entry.path;
+                this.elDirBrowserPath.textContent = entry.path;
+            });
+
+            // Double click navigates into
+            el.addEventListener('dblclick', () => {
+                this.browseDirectory(entry.path);
+            });
+
+            this.elDirBrowserList.appendChild(el);
+        }
+    }
+
+    async handleCreateWorkspace() {
+        const name = this.elWsName.value.trim();
+        if (!name) {
+            this.elWsName.focus();
+            return;
+        }
+
+        try {
+            const ws = await this.apiFetch('/api/workspaces', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name,
+                    path: this.elWsPath.value.trim(),
+                    backend: this.elWsBackend.value,
+                }),
+            });
+
+            this.closeNewWorkspaceDialog();
+            await this.fetchWorkspaces();
+            this.switchWorkspace(ws.workspace_id);
+        } catch (e) {
+            console.error('Failed to create workspace:', e);
+            alert(`Failed to create workspace: ${e.message}`);
+        }
+    }
+
+    async deleteWorkspace(workspaceId) {
+        if (workspaceId === 'global') return;
+        if (!confirm('Delete this workspace? Sessions will be unscoped.')) return;
+
+        try {
+            await this.apiFetch(`/api/workspaces/${workspaceId}`, { method: 'DELETE' });
+            await this.fetchWorkspaces();
+            if (this.activeWorkspaceId === workspaceId) {
+                this.switchWorkspace('global');
+            } else {
+                this.render();
+            }
+        } catch (e) {
+            console.error('Failed to delete workspace:', e);
+        }
+    }
+
+    // ---- Session Actions ----
 
     async createSession() {
         try {
             const data = await this.apiFetch('/api/sessions', {
                 method: 'POST',
-                body: JSON.stringify({ workspace: this.currentWorkspace }),
+                body: JSON.stringify({
+                    workspace: this.activeWorkspaceName(),
+                    workspace_id: this.activeWorkspaceId,
+                }),
             });
 
             this.currentSessionId = data.session_id;
@@ -200,7 +520,6 @@ class AgentManagerApp {
         this.elSendBtn.classList.remove('input-box__send-btn--active');
         this.elAboutSection.style.display = 'none';
 
-        // Show loading
         const loadingEl = this.appendLoading();
 
         try {
@@ -220,22 +539,10 @@ class AgentManagerApp {
         }
     }
 
-    async searchInbox() {
-        const q = this.elInboxSearch.value.trim();
-        try {
-            const data = await this.apiFetch(`/api/inbox/search?q=${encodeURIComponent(q)}`);
-            this.renderInboxItems(data.items || []);
-        } catch (e) {
-            console.error('Inbox search failed:', e);
-        }
-    }
-
     async selectSession(sessionId) {
         this.currentSessionId = sessionId;
         this.switchView('conversation');
         this.elAboutSection.style.display = 'none';
-
-        // Clear and load messages
         this.elMessages.innerHTML = '';
 
         const detail = await this.fetchSessionDetail(sessionId);
@@ -250,6 +557,16 @@ class AgentManagerApp {
         }
 
         this.renderSidebar();
+    }
+
+    async searchInbox() {
+        const q = this.elInboxSearch.value.trim();
+        try {
+            const data = await this.apiFetch(`/api/inbox/search?q=${encodeURIComponent(q)}`);
+            this.renderInboxItems(data.items || []);
+        } catch (e) {
+            console.error('Inbox search failed:', e);
+        }
     }
 
     // ---- View Switching ----
@@ -269,55 +586,101 @@ class AgentManagerApp {
     // ---- Rendering ----
 
     render() {
+        this.renderWorkspaceTabs();
         this.renderSidebar();
         this.renderWorkspaceLabel();
     }
 
+    // Active workspace helpers
+
+    activeWorkspace() {
+        return this.workspaces.find(ws => ws.workspace_id === this.activeWorkspaceId) || null;
+    }
+
+    activeWorkspaceName() {
+        const ws = this.activeWorkspace();
+        return ws ? ws.name : 'Global';
+    }
+
+    // Workspace tab bar
+
+    renderWorkspaceTabs() {
+        // Update global tab active state
+        this.elTabGlobal.classList.toggle('workspace-tab--active', this.activeWorkspaceId === 'global');
+
+        // Render dynamic project tabs
+        this.elDynamicTabs.innerHTML = '';
+
+        const projects = this.workspaces.filter(ws => ws.type === 'project');
+        for (const ws of projects) {
+            const tab = document.createElement('button');
+            tab.className = 'workspace-tab';
+            tab.dataset.wsId = ws.workspace_id;
+            if (ws.workspace_id === this.activeWorkspaceId) {
+                tab.classList.add('workspace-tab--active');
+            }
+
+            tab.innerHTML = `
+                <span class="workspace-tab__icon">📁</span>
+                <span class="workspace-tab__label">${this.escapeHtml(ws.name)}</span>
+                <span class="workspace-tab__close" title="Close workspace">✕</span>
+            `;
+
+            tab.addEventListener('click', (e) => {
+                if (e.target.closest('.workspace-tab__close')) {
+                    e.stopPropagation();
+                    this.deleteWorkspace(ws.workspace_id);
+                } else {
+                    this.switchWorkspace(ws.workspace_id);
+                }
+            });
+
+            this.elDynamicTabs.appendChild(tab);
+        }
+    }
+
     renderWorkspaceLabel() {
-        this.elCurrentWorkspace.textContent =
-            this.currentWorkspace.charAt(0).toUpperCase() + this.currentWorkspace.slice(1);
+        const name = this.activeWorkspaceName();
+        this.elCurrentWorkspace.textContent = name;
     }
 
     renderSidebar() {
-        this.renderWorkspaces();
+        this.renderSidebarWorkspaces();
         this.renderPlaygroundSessions();
     }
 
-    renderWorkspaces() {
+    renderSidebarWorkspaces() {
         this.elWorkspaceList.innerHTML = '';
 
-        for (const ws of this.workspaces) {
+        const projects = this.workspaces.filter(ws => ws.type === 'project');
+        for (const ws of projects) {
             const el = document.createElement('div');
             el.className = 'sidebar__workspace-item';
-            if (ws.name === this.currentWorkspace) {
+            if (ws.workspace_id === this.activeWorkspaceId) {
                 el.classList.add('sidebar__workspace-item--active');
             }
 
-            const statusClass = ws.connected
-                ? 'sidebar__workspace-status--connected'
-                : 'sidebar__workspace-status--disconnected';
+            const backend = ws.backend || 'local';
+            const isSSH = backend !== 'local';
 
             el.innerHTML = `
                 <span class="sidebar__workspace-chevron">▸</span>
-                <span class="sidebar__workspace-status ${statusClass}"></span>
+                <span class="sidebar__workspace-status sidebar__workspace-status--connected"></span>
                 <span class="sidebar__workspace-name">${this.escapeHtml(ws.name)}</span>
-                ${ws.type === 'ssh'
+                ${isSSH
                     ? '<span class="sidebar__workspace-type sidebar__workspace-type--ssh">SSH</span>'
                     : ''
                 }
                 <button class="sidebar__workspace-add-btn" title="New conversation">+</button>
             `;
 
-            el.addEventListener('click', () => {
-                this.currentWorkspace = ws.name;
-                this.render();
-            });
+            el.addEventListener('click', () => this.switchWorkspace(ws.workspace_id));
 
             const addBtn = el.querySelector('.sidebar__workspace-add-btn');
             if (addBtn) {
                 addBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    this.currentWorkspace = ws.name;
+                    this.activeWorkspaceId = ws.workspace_id;
                     this.createSession();
                 });
             }
@@ -329,11 +692,14 @@ class AgentManagerApp {
     renderPlaygroundSessions() {
         this.elPlaygroundList.innerHTML = '';
 
-        const playgroundSessions = this.sessions.filter(
-            s => (s.workspace || 'playground') === 'playground'
-        );
+        // Show sessions scoped to the active workspace
+        const targetWsId = this.activeWorkspaceId;
+        const filtered = this.sessions.filter(s => {
+            const wsId = (s.metadata && s.metadata.workspace_id) || 'global';
+            return wsId === targetWsId;
+        });
 
-        for (const session of playgroundSessions) {
+        for (const session of filtered) {
             const el = document.createElement('div');
             el.className = 'sidebar__conversation-item';
             if (session.session_id === this.currentSessionId) {
