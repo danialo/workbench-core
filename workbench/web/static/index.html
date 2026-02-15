@@ -4,12 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Zero-G Agent Manager — manage AI agent workspaces, conversations, and inbox">
-    <title>Agent Manager — Zero-G</title>
+    <meta name="description" content="Zero-G Operations Center — manage agents, investigate incidents, review evidence">
+    <title>Operations Center — Zero-G</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/index.css">
+    <link rel="stylesheet" href="/static/agent-hud.css">
+    <link rel="stylesheet" href="/static/triage.css">
+    <link rel="stylesheet" href="/static/evidence.css">
 </head>
 
 <body>
@@ -42,7 +45,7 @@
             <button class="top-bar__menu-item" id="menuView">View</button>
         </div>
         <div class="top-bar__center">
-            <span class="top-bar__title">Agent Manager</span>
+            <span class="top-bar__title">Operations Center</span>
         </div>
         <div class="top-bar__right">
             <button class="top-bar__action" id="btnOpenEditor">Open Editor</button>
@@ -64,6 +67,42 @@
         <div class="workspace-tabs__dynamic" id="dynamicTabs"></div>
         <button class="workspace-tabs__new-btn" id="btnNewWorkspace" title="New Workspace">
             <span>+</span>
+        </button>
+    </div>
+
+    <!-- AGENT HUD -->
+    <div class="agent-hud" id="agentHud">
+        <div class="agent-hud__label">Agents</div>
+        <div class="agent-hud__list" id="agentHudList">
+            <div class="agent-hud__empty">No active agents</div>
+        </div>
+        <button class="agent-hud__expand-btn" id="btnExpandAgentPanel" title="Expand agent panel">⊞</button>
+    </div>
+
+    <!-- AGENT ACTIVITY PANEL (slides in from side) -->
+    <div class="agent-panel" id="agentPanel" style="display:none">
+        <div class="agent-panel__header">
+            <span class="agent-panel__title">Agent Activity</span>
+            <div class="agent-panel__header-actions">
+                <button class="agent-panel__dock-btn" id="btnDockPanel" title="Dock left/right">⇄</button>
+                <button class="agent-panel__close-btn" id="btnCloseAgentPanel" title="Close">✕</button>
+            </div>
+        </div>
+        <div class="agent-panel__body" id="agentPanelBody">
+            <div class="agent-panel__empty">No active agents</div>
+        </div>
+    </div>
+
+    <!-- WINDOW TAB BAR -->
+    <div class="window-tabs" id="windowTabs">
+        <button class="window-tab window-tab--active" data-window="inbox" id="tabInbox">
+            Inbox
+        </button>
+        <button class="window-tab" data-window="triage" id="tabTriage">
+            Triage
+        </button>
+        <button class="window-tab" data-window="evidence" id="tabEvidence">
+            Evidence
         </button>
     </div>
 
@@ -161,8 +200,10 @@
 
         <!-- MAIN CONTENT -->
         <main class="main" id="mainContent">
+            <!-- Window: Inbox (conversation + inbox views) -->
+            <div class="window window--active" id="windowInbox" data-window="inbox">
             <!-- Conversation View -->
-            <div class="conversation-view" id="conversationView">
+            <div class="conversation-view" id="conversationView" style="display:none">
                 <div class="conversation-view__header">
                     <h1 class="conversation-view__title">
                         Start new conversation in
@@ -226,7 +267,7 @@
             </div>
 
             <!-- Inbox View -->
-            <div class="inbox-view" id="inboxView" style="display:none">
+            <div class="inbox-view" id="inboxView">
                 <div class="inbox-view__header">
                     <h1 class="inbox-view__title">Inbox</h1>
                     <button class="inbox-view__back-btn" id="btnBackToConversation">← Back to conversations</button>
@@ -241,9 +282,48 @@
                     </div>
                 </div>
             </div>
+            </div><!-- /windowInbox -->
+
+            <!-- Window: Triage -->
+            <div class="window" id="windowTriage" data-window="triage" style="display:none">
+                <div class="triage-window">
+                    <div class="triage-window__header">
+                        <h1 class="triage-window__title">Triage</h1>
+                        <div class="triage-window__actions">
+                            <button class="triage-window__new-btn" id="btnNewInvestigation">+ New Investigation</button>
+                            <select class="triage-window__filter" id="investigationFilter">
+                                <option value="open">Open</option>
+                                <option value="investigating">Investigating</option>
+                                <option value="escalated">Escalated</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="all">All</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="triage-window__body">
+                        <div class="investigation-list" id="investigationList">
+                            <div class="investigation-list__empty">No investigations. Click "+ New Investigation" to create one.</div>
+                        </div>
+                        <div class="investigation-detail" id="investigationDetail" style="display:none">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Window: Evidence (stub) -->
+            <div class="window" id="windowEvidence" data-window="evidence" style="display:none">
+                <div class="evidence-window">
+                    <div class="evidence-window__placeholder">
+                        <h2>Evidence</h2>
+                        <p>Tool call inspection and audit trail — coming soon.</p>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
+    <script src="/static/agent-hud.js"></script>
+    <script src="/static/triage.js"></script>
     <script src="/static/app.js"></script>
 </body>
 

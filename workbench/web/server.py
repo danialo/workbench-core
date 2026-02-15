@@ -8,11 +8,13 @@ orchestrator pipeline.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -122,6 +124,10 @@ class MessageResponse(BaseModel):
     response: str = ""
 
 
+from workbench.web.routes.agents import AgentRegistry, router as agents_router
+from workbench.web.routes.investigations import router as investigations_router
+
+
 # -----------------------------------------------------------------------
 # App factory
 # -----------------------------------------------------------------------
@@ -224,6 +230,17 @@ def create_app(
 
     app.state.orchestrator_factory = orchestrator_factory
     app.state.confirmation_manager = confirmation_manager
+
+    # ---- Agent Registry ----
+    agent_registry = AgentRegistry()
+    app.state.agent_registry = agent_registry
+
+    # ---- Investigations DB path (used by investigations router) ----
+    app.state.investigations_db_path = str(Path(db_path).expanduser())
+
+    # ---- Include feature routers ----
+    app.include_router(agents_router)
+    app.include_router(investigations_router)
 
     # ---- Static files ----
     if _STATIC_DIR.exists():
@@ -768,8 +785,66 @@ def create_app(
         from workbench.web.streaming import sse_generator
         events = orch.run_streaming(content)
 
+        # Resolve workspace name for HUD display
+        ws_name = "Playground"
+        if ws_id != GLOBAL_WORKSPACE_ID:
+            ws_obj = workspace_manager.get(ws_id)
+            if ws_obj:
+                ws_name = ws_obj.name
+
+        # Register agent in HUD
+        agent_registry.register(session_id, ws_id, ws_name)
+
+        async def tracked_sse_generator():
+            """Wrap SSE generator to update agent registry on key events."""
+            try:
+                async for event in events:
+                    data = json.dumps(event.data, default=str)
+
+                    # Update agent state based on event type
+                    if event.type == "tool_call_start":
+                        tool_name = event.data.get("name", "")
+                        agent_registry.update(
+                            session_id,
+                            status="running",
+                            current_action=f"Calling {tool_name}",
+                        )
+                    elif event.type == "confirmation_required":
+                        agent_registry.update(
+                            session_id,
+                            status="waiting",
+                            current_action=f"Awaiting: {event.data.get('tool_name', '')}",
+                            pending_confirmation={
+                                "tool_call_id": event.data.get("tool_call_id", ""),
+                                "tool_name": event.data.get("tool_name", ""),
+                            },
+                        )
+                    elif event.type == "tool_call_result":
+                        agent_registry.update(
+                            session_id,
+                            status="running",
+                            current_action=None,
+                            pending_confirmation=None,
+                        )
+                    elif event.type == "text_delta":
+                        agent_registry.update(
+                            session_id,
+                            status="running",
+                            current_action="Generating response",
+                        )
+
+                    yield f"event: {event.type}\ndata: {data}\n\n"
+            except Exception as e:
+                agent_registry.unregister(session_id, status="error")
+                error_data = json.dumps({"message": str(e)})
+                yield f"event: error\ndata: {error_data}\n\n"
+            else:
+                agent_registry.unregister(session_id, status="completed")
+            finally:
+                yield f"event: done\ndata: {{}}\n\n"
+
         return StreamingResponse(
-            sse_generator(events),
+            tracked_sse_generator(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -791,6 +866,9 @@ def create_app(
         found = app.state.confirmation_manager.resolve(session_id, tool_call_id, confirmed)
         if not found:
             return JSONResponse({"error": "No pending confirmation found"}, status_code=404)
+
+        # Clear pending state in HUD
+        agent_registry.update(session_id, pending_confirmation=None)
 
         return JSONResponse({"status": "resolved", "confirmed": confirmed})
 

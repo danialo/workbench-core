@@ -15,12 +15,19 @@ class AgentManagerApp {
         this.workspaces = [];
         this.activeWorkspaceId = 'global';
         this.currentSessionId = null;
-        this.currentView = 'conversation'; // 'conversation' | 'inbox'
+        this.currentView = 'inbox'; // 'conversation' | 'inbox'
         this.searchDebounceTimer = null;
 
         // Streaming state
         this.isStreaming = false;
         this.followAlong = true;
+
+        // Multi-window state
+        this.activeWindow = 'inbox';
+
+        // Sub-modules (loaded from separate files)
+        this.agentHud = new AgentHud(this);
+        this.triageWindow = new TriageWindow(this);
 
         // Track which workspaces are expanded/closed in sidebar
         this.expandedWorkspaces = new Set();
@@ -39,6 +46,10 @@ class AgentManagerApp {
             this.fetchProviders(),
         ]);
         this.render();
+        this.agentHud.start();
+        this.triageWindow.bindEvents();
+        // Default to inbox view on load
+        this.switchView('inbox');
     }
 
     // ---- Element References ----
@@ -207,6 +218,11 @@ class AgentManagerApp {
                 if (this.followAlong) this.scrollToBottom();
             });
         }
+
+        // Window tabs
+        document.querySelectorAll('.window-tab[data-window]').forEach(tab => {
+            tab.addEventListener('click', () => this.switchWindow(tab.dataset.window));
+        });
 
         // Workspace tabs
         this.elTabGlobal.addEventListener('click', () => this.switchWorkspace('global'));
@@ -1370,6 +1386,33 @@ class AgentManagerApp {
         if (inList) result.push('</ul>');
 
         return result.join('\n');
+    }
+
+    // ---- Window Switching ----
+
+    switchWindow(windowName) {
+        this.activeWindow = windowName;
+
+        // Toggle window containers
+        document.querySelectorAll('.window').forEach(w => {
+            if (w.dataset.window === windowName) {
+                w.style.display = 'flex';
+                w.classList.add('window--active');
+            } else {
+                w.style.display = 'none';
+                w.classList.remove('window--active');
+            }
+        });
+
+        // Toggle window tab active state
+        document.querySelectorAll('.window-tab').forEach(tab => {
+            tab.classList.toggle('window-tab--active', tab.dataset.window === windowName);
+        });
+
+        // Activate window-specific logic
+        if (windowName === 'triage') {
+            this.triageWindow.activate();
+        }
     }
 
     formatDate(dateStr) {

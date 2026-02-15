@@ -1,0 +1,345 @@
+/* ================================================================
+   AGENT HUD — persistent agent overlay
+   ================================================================ */
+
+.agent-hud {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    min-height: 28px;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.agent-hud::-webkit-scrollbar { height: 0; }
+
+.agent-hud__label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.agent-hud__list {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+
+.agent-hud__empty {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.agent-hud__item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    font-size: 11px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.agent-hud__item:hover {
+    background: var(--bg-surface-hover);
+    border-color: var(--border-medium);
+}
+
+.agent-hud__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.agent-hud__dot--running {
+    background: var(--accent-primary);
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+.agent-hud__dot--waiting {
+    background: #ff9800;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.agent-hud__dot--completed {
+    background: var(--status-connected);
+}
+
+.agent-hud__dot--error {
+    background: var(--status-error);
+}
+
+.agent-hud__name {
+    color: var(--text-primary);
+    font-weight: 500;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.agent-hud__action {
+    color: var(--text-tertiary);
+    font-size: 10px;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.agent-hud__approve-btn {
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border-radius: 3px;
+    transition: background var(--transition-fast);
+}
+
+.agent-hud__approve-btn:hover {
+    background: var(--accent-primary-hover);
+}
+
+.agent-hud__expand-btn {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    font-size: 14px;
+    color: var(--text-tertiary);
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    line-height: 1;
+}
+
+.agent-hud__expand-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+    border-color: var(--border-medium);
+}
+
+/* ================================================================
+   AGENT ACTIVITY PANEL — dockable side panel
+   ================================================================ */
+
+.agent-panel {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-medium);
+    z-index: 150;
+    transition: transform 0.2s ease;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+}
+
+.agent-panel--right {
+    right: 0;
+    transform: translateX(100%);
+}
+
+.agent-panel--left {
+    left: 0;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+}
+
+.agent-panel--right.agent-panel--open {
+    transform: translateX(0);
+}
+
+.agent-panel--left.agent-panel--open {
+    transform: translateX(0);
+}
+
+.agent-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
+.agent-panel__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.agent-panel__header-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.agent-panel__dock-btn,
+.agent-panel__close-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    line-height: 1;
+}
+
+.agent-panel__dock-btn:hover,
+.agent-panel__close-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+    border-color: var(--border-medium);
+}
+
+.agent-panel__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.agent-panel__empty {
+    padding: 40px 16px;
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* Workspace groups */
+.agent-panel__group {
+    margin-bottom: 4px;
+}
+
+.agent-panel__group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary);
+}
+
+.agent-panel__group-icon {
+    font-size: 12px;
+}
+
+.agent-panel__group-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-panel__group-count {
+    font-size: 10px;
+    padding: 1px 5px;
+    background: var(--bg-input);
+    border-radius: 8px;
+    color: var(--text-tertiary);
+}
+
+/* Agent items in panel */
+.agent-panel__agent {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.agent-panel__agent:hover {
+    background: var(--bg-surface-hover);
+}
+
+.agent-panel__status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.agent-panel__status-dot--running {
+    background: var(--accent-primary);
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+.agent-panel__status-dot--waiting {
+    background: #ff9800;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.agent-panel__status-dot--completed {
+    background: var(--status-connected);
+}
+
+.agent-panel__status-dot--error {
+    background: var(--status-error);
+}
+
+.agent-panel__agent-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.agent-panel__agent-session {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.agent-panel__agent-action {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-panel__agent-age {
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.agent-panel__approve-btn {
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background var(--transition-fast);
+}
+
+.agent-panel__approve-btn:hover {
+    background: var(--accent-primary-hover);
+}

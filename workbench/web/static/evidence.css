@@ -1,0 +1,25 @@
+/* ================================================================
+   EVIDENCE WINDOW (placeholder)
+   ================================================================ */
+
+.evidence-window {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.evidence-window__placeholder {
+    text-align: center;
+    color: var(--text-tertiary);
+}
+
+.evidence-window__placeholder h2 {
+    font-size: 18px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.evidence-window__placeholder p {
+    font-size: 13px;
+}

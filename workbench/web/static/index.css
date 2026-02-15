@@ -341,13 +341,63 @@ select {
 }
 
 /* ================================================================
+   WINDOW TAB BAR
+   ================================================================ */
+
+.window-tabs {
+    display: flex;
+    align-items: stretch;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0 12px;
+    gap: 2px;
+    height: 30px;
+}
+
+.window-tab {
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    border-bottom: 2px solid transparent;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+}
+
+.window-tab:hover {
+    color: var(--text-secondary);
+    background: var(--bg-surface-hover);
+}
+
+.window-tab--active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent-primary);
+}
+
+/* ================================================================
+   WINDOW CONTAINERS
+   ================================================================ */
+
+.window {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.window--active {
+    display: flex;
+}
+
+/* ================================================================
    LAYOUT
    ================================================================ */
 
 .layout {
     display: grid;
     grid-template-columns: var(--sidebar-width) 1fr;
-    height: calc(100vh - var(--topbar-height) - var(--tabbar-height));
+    height: calc(100vh - var(--topbar-height) - var(--tabbar-height) - 28px - 30px);
 }
 
 /* ================================================================
