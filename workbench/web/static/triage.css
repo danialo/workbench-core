@@ -1,23 +1,23 @@
 /* ================================================================
-   TRIAGE WINDOW — investigation management
+   TRIAGE WINDOW — three-panel investigation layout
    ================================================================ */
 
 .triage-window {
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: 0 40px;
 }
 
 .triage-window__header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 24px 0 16px;
+    padding: 14px 20px 10px;
+    flex-shrink: 0;
 }
 
 .triage-window__title {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -54,37 +54,79 @@
     cursor: pointer;
 }
 
+/* ---- Three-panel body ---- */
+
 .triage-window__body {
-    display: flex;
+    display: grid;
+    grid-template-columns: 280px 1fr;
     flex: 1;
-    gap: 20px;
+    overflow: hidden;
+    gap: 0;
+}
+
+.triage-window__body--intake-open {
+    grid-template-columns: 280px 1fr 380px;
+}
+
+/* Left: Investigation list */
+.triage-window__list {
+    overflow-y: auto;
+    border-right: 1px solid var(--border-subtle);
+    padding: 8px;
+}
+
+/* Center: Detail or Chat */
+.triage-window__center {
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
 }
 
-/* Investigation List */
-.investigation-list {
-    flex: 1;
-    overflow-y: auto;
+/* ================================================================
+   EMPTY STATE
+   ================================================================ */
+
+.triage-empty-state {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-tertiary);
+    font-size: 13px;
+    gap: 12px;
+}
+
+.triage-empty-state__icon {
+    font-size: 32px;
+    opacity: 0.5;
+}
+
+/* ================================================================
+   INVESTIGATION LIST
+   ================================================================ */
+
+.investigation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 .investigation-list__empty {
-    padding: 60px 20px;
+    padding: 40px 16px;
     text-align: center;
     color: var(--text-tertiary);
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .investigation-card {
     display: flex;
     align-items: flex-start;
-    gap: 10px;
-    padding: 12px 14px;
+    gap: 8px;
+    padding: 10px 12px;
     background: var(--bg-surface);
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
     transition: all var(--transition-fast);
 }
@@ -100,13 +142,14 @@
 }
 
 .investigation-card__severity {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 4px;
+    padding: 2px 6px;
+    border-radius: 3px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     flex-shrink: 0;
+    margin-top: 2px;
 }
 
 .investigation-card--critical .investigation-card__severity {
@@ -135,19 +178,22 @@
 }
 
 .investigation-card__title {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--text-primary);
     margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .investigation-card__meta {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-tertiary);
 }
 
 .investigation-card__agent-status {
-    font-size: 11px;
+    font-size: 10px;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -155,21 +201,40 @@
     flex-shrink: 0;
 }
 
-/* Investigation Detail */
-.investigation-detail {
+.investigation-card__chat-icon {
+    font-size: 11px;
+    margin-left: 2px;
+}
+
+/* ================================================================
+   DETAIL VIEW
+   ================================================================ */
+
+.triage-detail-view {
     flex: 1;
     overflow-y: auto;
-    padding: 16px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    padding: 20px;
+}
+
+.investigation-detail {
+    max-width: 700px;
 }
 
 .investigation-detail__header {
+    margin-bottom: 16px;
+}
+
+.investigation-detail__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+
+.investigation-detail__fields {
     display: flex;
     gap: 12px;
     align-items: center;
-    margin-bottom: 16px;
     flex-wrap: wrap;
 }
 
@@ -197,7 +262,7 @@
 }
 
 .investigation-detail__section-title {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text-primary);
     text-transform: uppercase;
@@ -215,7 +280,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 0;
+    padding: 5px 0;
     font-size: 12px;
     color: var(--text-secondary);
     cursor: pointer;
@@ -250,17 +315,41 @@
     color: var(--bg-primary);
 }
 
-.investigation-detail__agent-summary {
-    margin-top: 12px;
-    padding: 10px 12px;
-    background: var(--bg-input);
-    border: 1px solid var(--border-subtle);
-    border-radius: 6px;
-    font-size: 12px;
-    color: var(--text-secondary);
-    line-height: 1.5;
+/* Chat section in detail */
+.investigation-detail__chat-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-subtle);
 }
 
+.investigation-detail__chat-btn {
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--bg-input);
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.investigation-detail__chat-btn:hover {
+    background: var(--bg-surface-hover);
+    border-color: var(--accent-primary);
+}
+
+.investigation-detail__chat-btn--start {
+    background: var(--accent-dim);
+    border-color: rgba(226, 179, 64, 0.3);
+    color: var(--accent-primary);
+}
+
+.investigation-detail__chat-btn--start:hover {
+    background: rgba(226, 179, 64, 0.15);
+}
+
+/* Actions */
 .investigation-detail__actions {
     display: flex;
     gap: 8px;
@@ -303,15 +392,282 @@
     background: rgba(255, 152, 0, 0.1);
 }
 
-/* New Investigation Dialog overlay */
-.investigation-dialog-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
+/* ================================================================
+   CHAT VIEW (embedded conversation)
+   ================================================================ */
+
+.triage-chat-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.triage-chat-view__header {
     display: flex;
     align-items: center;
-    justify-content: center;
-    z-index: 200;
-    animation: fadeIn 0.15s ease;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
+.triage-chat-view__back-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.triage-chat-view__back-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+    border-color: var(--border-medium);
+}
+
+.triage-chat-view__title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.triage-chat-view__container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ================================================================
+   INTAKE PANEL (right side, hideable)
+   ================================================================ */
+
+.triage-intake-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border-medium);
+    animation: slideInRight 0.2s ease;
+    overflow: hidden;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(40px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.intake-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
+.intake-panel__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.intake-panel__close-btn {
+    padding: 4px 8px;
+    font-size: 14px;
+    color: var(--text-tertiary);
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    line-height: 1;
+}
+
+.intake-panel__close-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+    border-color: var(--border-medium);
+}
+
+.intake-panel__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+.intake-panel__section {
+    margin-bottom: 8px;
+}
+
+.intake-panel__label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 12px;
+}
+
+.intake-panel__input,
+.intake-panel__textarea,
+.intake-panel__select {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--bg-input);
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    color: var(--text-primary);
+    transition: border-color var(--transition-fast);
+}
+
+.intake-panel__input:focus,
+.intake-panel__textarea:focus,
+.intake-panel__select:focus {
+    border-color: var(--border-focus);
+    outline: none;
+}
+
+.intake-panel__textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.intake-panel__select {
+    appearance: auto;
+    -webkit-appearance: auto;
+    cursor: pointer;
+}
+
+/* Case fetch row */
+.intake-panel__case-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.intake-panel__case-row .intake-panel__input {
+    margin-top: 0;
+    flex: 1;
+}
+
+.intake-panel__fetch-btn {
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border-radius: 6px;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.intake-panel__fetch-btn:hover {
+    background: var(--accent-primary-hover);
+}
+
+.intake-panel__fetch-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Fetch status messages */
+.intake-panel__fetch-status {
+    margin-top: 6px;
+    font-size: 11px;
+    min-height: 16px;
+}
+
+.intake-panel__fetch-loading {
+    color: var(--accent-primary);
+}
+
+.intake-panel__fetch-success {
+    color: var(--status-connected);
+}
+
+.intake-panel__fetch-error {
+    color: var(--status-error);
+}
+
+/* Divider */
+.intake-panel__divider {
+    margin: 16px 0;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11px;
+    position: relative;
+}
+
+.intake-panel__divider::before,
+.intake-panel__divider::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    width: 35%;
+    height: 1px;
+    background: var(--border-subtle);
+}
+
+.intake-panel__divider::before { left: 0; }
+.intake-panel__divider::after { right: 0; }
+
+/* Footer */
+.intake-panel__footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
+.intake-panel__cancel-btn {
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.intake-panel__cancel-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+}
+
+.intake-panel__submit-btn {
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.intake-panel__submit-btn:hover {
+    background: var(--accent-primary-hover);
 }

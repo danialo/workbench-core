@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "integrations": {
+    "case_sources": [
+      {
+        "name": "glean",
+        "type": "agent",
+        "enabled": false,
+        "description": "Query Glean for case/knowledge data",
+        "prompt_template": "Query Glean for case {case_id}. Return JSON with fields: title, severity (critical/high/medium/low), affected_systems (list), description."
+      },
+      {
+        "name": "jira",
+        "type": "api",
+        "enabled": false,
+        "description": "Fetch Jira issue details",
+        "base_url": "",
+        "auth_env": "JIRA_API_TOKEN",
+        "endpoint_template": "/rest/api/2/issue/{case_id}",
+        "field_mapping": {
+          "title": "fields.summary",
+          "severity": "fields.priority.name",
+          "affected_systems": "fields.components[].name",
+          "description": "fields.description"
+        }
+      },
+      {
+        "name": "servicenow",
+        "type": "api",
+        "enabled": false,
+        "description": "Fetch ServiceNow incident",
+        "base_url": "",
+        "auth_env": "SNOW_API_TOKEN",
+        "endpoint_template": "/api/now/table/incident?sysparm_query=number={case_id}",
+        "field_mapping": {
+          "title": "result[0].short_description",
+          "severity": "result[0].severity",
+          "affected_systems": "result[0].cmdb_ci",
+          "description": "result[0].description"
+        }
+      }
+    ]
+  }
+}

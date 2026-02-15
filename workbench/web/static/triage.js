@@ -1,8 +1,13 @@
 /**
- * Triage Window — investigation management.
+ * Triage Window — investigation management with embedded chat.
  *
- * Create, view, escalate, and resolve investigations.
- * Each investigation auto-links to a conversation session.
+ * Three-panel layout:
+ *   Left:   Investigation list (always visible)
+ *   Center: Detail view OR embedded chat (switchable)
+ *   Right:  Intake panel for new investigations (hideable)
+ *
+ * Case query integration reads from ~/.workbench/integrations.json
+ * to populate investigations from external systems (Jira, ServiceNow, Glean, etc.)
  */
 
 class TriageWindow {
@@ -10,6 +15,9 @@ class TriageWindow {
         this.app = app;
         this.investigations = [];
         this.activeInvestigationId = null;
+        this.activeInvestigation = null;
+        this.centerView = 'empty'; // 'empty' | 'detail' | 'chat'
+        this.intakePanelOpen = false;
     }
 
     activate() {
@@ -17,20 +25,54 @@ class TriageWindow {
     }
 
     deactivate() {
-        // Nothing to clean up
+        // Return chat to inbox if we reparented it
+        if (this.centerView === 'chat') {
+            this.app.returnChat();
+            const conv = document.getElementById('conversationView');
+            if (conv) conv.style.display = 'none';
+        }
+        this.centerView = 'empty';
     }
 
     bindEvents() {
-        const btnNewInvestigation = document.getElementById('btnNewInvestigation');
-        if (btnNewInvestigation) {
-            btnNewInvestigation.addEventListener('click', () => this.openNewInvestigationDialog());
+        const btnNew = document.getElementById('btnNewInvestigation');
+        if (btnNew) btnNew.addEventListener('click', () => this.openIntakePanel());
+
+        const filter = document.getElementById('investigationFilter');
+        if (filter) filter.addEventListener('change', () => this.fetchInvestigations());
+
+        // Intake panel controls
+        const btnClose = document.getElementById('btnCloseIntake');
+        if (btnClose) btnClose.addEventListener('click', () => this.closeIntakePanel());
+
+        const btnCancel = document.getElementById('btnCancelIntake');
+        if (btnCancel) btnCancel.addEventListener('click', () => this.closeIntakePanel());
+
+        const btnFetch = document.getElementById('btnFetchCase');
+        if (btnFetch) btnFetch.addEventListener('click', () => this.fetchCaseData());
+
+        const btnSubmit = document.getElementById('btnSubmitIntake');
+        if (btnSubmit) btnSubmit.addEventListener('click', () => this.submitInvestigation());
+
+        // Chat back button
+        const btnBack = document.getElementById('btnTriageBackToDetail');
+        if (btnBack) btnBack.addEventListener('click', () => this.showDetailView());
+
+        // Enter key on case ID input triggers fetch
+        const caseInput = document.getElementById('intakeCaseId');
+        if (caseInput) {
+            caseInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') this.fetchCaseData();
+            });
         }
 
-        const investigationFilter = document.getElementById('investigationFilter');
-        if (investigationFilter) {
-            investigationFilter.addEventListener('change', () => this.fetchInvestigations());
-        }
+        // Escape closes intake panel
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.intakePanelOpen) this.closeIntakePanel();
+        });
     }
+
+    // ---- Data fetching ----
 
     async fetchInvestigations() {
         const filter = document.getElementById('investigationFilter');
@@ -47,6 +89,8 @@ class TriageWindow {
             this.renderList();
         }
     }
+
+    // ---- Investigation list ----
 
     renderList() {
         const container = document.getElementById('investigationList');
@@ -67,6 +111,7 @@ class TriageWindow {
 
             const age = this.timeAgo(inv.created_at);
             const systems = Array.isArray(inv.affected_systems) ? inv.affected_systems.join(', ') : '';
+            const hasSession = !!inv.session_id;
 
             card.innerHTML = `
                 <span class="investigation-card__severity">${this.app.escapeHtml(inv.severity)}</span>
@@ -77,6 +122,7 @@ class TriageWindow {
                 <div class="investigation-card__agent-status">
                     <span class="agent-hud__dot agent-hud__dot--${inv.status === 'resolved' ? 'completed' : 'running'}"></span>
                     <span>${this.app.escapeHtml(inv.status)}</span>
+                    ${hasSession ? '<span class="investigation-card__chat-icon" title="Has conversation">💬</span>' : ''}
                 </div>
             `;
 
@@ -85,23 +131,45 @@ class TriageWindow {
         }
     }
 
+    // ---- Investigation selection & center view ----
+
     async selectInvestigation(investigationId) {
         this.activeInvestigationId = investigationId;
         this.renderList();
 
         try {
             const data = await this.app.apiFetch(`/api/investigations/${investigationId}`);
-            this.renderDetail(data);
+            this.activeInvestigation = data;
+            this.showDetailView(data);
         } catch (e) {
             console.error('Failed to fetch investigation:', e);
         }
     }
 
+    showDetailView(investigation) {
+        const inv = investigation || this.activeInvestigation;
+        if (!inv) return;
+
+        // If we were in chat mode, return the conversation DOM
+        if (this.centerView === 'chat') {
+            this.app.returnChat();
+            const conv = document.getElementById('conversationView');
+            if (conv) conv.style.display = 'none';
+        }
+
+        this.centerView = 'detail';
+
+        // Toggle visibility
+        document.getElementById('triageEmptyState').style.display = 'none';
+        document.getElementById('triageChatView').style.display = 'none';
+        document.getElementById('triageDetailView').style.display = 'flex';
+
+        this.renderDetail(inv);
+    }
+
     renderDetail(inv) {
         const detail = document.getElementById('investigationDetail');
         if (!detail) return;
-
-        detail.style.display = 'block';
 
         const checklist = Array.isArray(inv.checklist) ? inv.checklist : [];
         const checklistHtml = checklist.map((item, i) => `
@@ -112,39 +180,48 @@ class TriageWindow {
         `).join('');
 
         const systems = Array.isArray(inv.affected_systems) ? inv.affected_systems.join(', ') : '';
+        const hasSession = !!inv.session_id;
 
         detail.innerHTML = `
             <div class="investigation-detail__header">
-                <div class="investigation-detail__field">
-                    <span class="investigation-detail__field-label">Severity:</span>
-                    <span class="investigation-card__severity investigation-card--${inv.severity}"
-                          style="display:inline-block">${this.app.escapeHtml(inv.severity.toUpperCase())}</span>
+                <h2 class="investigation-detail__title">${this.app.escapeHtml(inv.title)}</h2>
+                <div class="investigation-detail__fields">
+                    <div class="investigation-detail__field">
+                        <span class="investigation-detail__field-label">Severity:</span>
+                        <span class="investigation-card__severity investigation-card--${inv.severity}"
+                              style="display:inline-block">${this.app.escapeHtml(inv.severity.toUpperCase())}</span>
+                    </div>
+                    <div class="investigation-detail__field">
+                        <span class="investigation-detail__field-label">Status:</span>
+                        <span class="investigation-detail__field-value">${this.app.escapeHtml(inv.status)}</span>
+                    </div>
+                    <div class="investigation-detail__field">
+                        <span class="investigation-detail__field-label">Age:</span>
+                        <span class="investigation-detail__field-value">${this.timeAgo(inv.created_at)}</span>
+                    </div>
+                    ${systems ? `
+                    <div class="investigation-detail__field">
+                        <span class="investigation-detail__field-label">Systems:</span>
+                        <span class="investigation-detail__field-value">${this.app.escapeHtml(systems)}</span>
+                    </div>` : ''}
                 </div>
-                <div class="investigation-detail__field">
-                    <span class="investigation-detail__field-label">Status:</span>
-                    <span class="investigation-detail__field-value">${this.app.escapeHtml(inv.status)}</span>
-                </div>
-                <div class="investigation-detail__field">
-                    <span class="investigation-detail__field-label">Age:</span>
-                    <span class="investigation-detail__field-value">${this.timeAgo(inv.created_at)}</span>
-                </div>
-                ${systems ? `
-                <div class="investigation-detail__field">
-                    <span class="investigation-detail__field-label">Systems:</span>
-                    <span class="investigation-detail__field-value">${this.app.escapeHtml(systems)}</span>
-                </div>` : ''}
             </div>
             ${inv.description ? `<div class="investigation-detail__description">${this.app.escapeHtml(inv.description)}</div>` : ''}
             ${checklist.length > 0 ? `
                 <div class="investigation-detail__section-title">Checklist</div>
                 <ul class="investigation-detail__checklist">${checklistHtml}</ul>
             ` : ''}
-            ${inv.session_id ? `
-                <div class="investigation-detail__agent-summary">
-                    Agent linked: session ${inv.session_id.substring(0, 8)}...
-                    <a href="#" class="investigation-detail__open-conversation" style="margin-left:8px; color:var(--accent-primary)">Open conversation</a>
-                </div>
-            ` : ''}
+            <div class="investigation-detail__chat-section">
+                ${hasSession ? `
+                    <button class="investigation-detail__chat-btn" id="btnOpenChat">
+                        💬 Open Conversation
+                    </button>
+                ` : `
+                    <button class="investigation-detail__chat-btn investigation-detail__chat-btn--start" id="btnStartChat">
+                        + Start Investigation Chat
+                    </button>
+                `}
+            </div>
             <div class="investigation-detail__actions">
                 <button class="investigation-detail__action-btn investigation-detail__action-btn--escalate" id="btnEscalate">Escalate</button>
                 <button class="investigation-detail__action-btn investigation-detail__action-btn--resolve" id="btnResolve">Resolve</button>
@@ -159,26 +236,173 @@ class TriageWindow {
             });
         });
 
-        // Wire open conversation link
-        const convLink = detail.querySelector('.investigation-detail__open-conversation');
-        if (convLink && inv.session_id) {
-            convLink.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.app.switchWindow('inbox');
-                this.app.selectSession(inv.session_id);
-            });
+        // Wire chat button
+        const btnOpen = detail.querySelector('#btnOpenChat');
+        if (btnOpen) {
+            btnOpen.addEventListener('click', () => this.showChatView(inv.session_id, inv.title));
+        }
+        const btnStart = detail.querySelector('#btnStartChat');
+        if (btnStart) {
+            btnStart.addEventListener('click', () => this.startChat(inv));
         }
 
         // Wire action buttons
         const btnEscalate = detail.querySelector('#btnEscalate');
-        if (btnEscalate) {
-            btnEscalate.addEventListener('click', () => this.escalateInvestigation(inv.investigation_id));
-        }
+        if (btnEscalate) btnEscalate.addEventListener('click', () => this.escalateInvestigation(inv.investigation_id));
         const btnResolve = detail.querySelector('#btnResolve');
-        if (btnResolve) {
-            btnResolve.addEventListener('click', () => this.resolveInvestigation(inv.investigation_id));
+        if (btnResolve) btnResolve.addEventListener('click', () => this.resolveInvestigation(inv.investigation_id));
+    }
+
+    // ---- Embedded chat ----
+
+    async showChatView(sessionId, investigationTitle) {
+        this.centerView = 'chat';
+
+        // Toggle visibility
+        document.getElementById('triageEmptyState').style.display = 'none';
+        document.getElementById('triageDetailView').style.display = 'none';
+        document.getElementById('triageChatView').style.display = 'flex';
+
+        // Update title
+        const titleEl = document.getElementById('triageChatTitle');
+        if (titleEl) titleEl.textContent = investigationTitle || 'Investigation';
+
+        // Reparent the conversation view into triage
+        this.app.reparentChat('triageChatContainer');
+
+        // Load the session and show it
+        await this.app.selectSession(sessionId);
+        const conv = document.getElementById('conversationView');
+        if (conv) conv.style.display = 'flex';
+    }
+
+    async startChat(investigation) {
+        try {
+            // Create a new session linked to this investigation
+            const session = await this.app.apiFetch('/api/sessions', {
+                method: 'POST',
+                body: JSON.stringify({
+                    workspace_id: investigation.workspace_id || this.app.activeWorkspaceId,
+                    metadata: { investigation_id: investigation.investigation_id },
+                }),
+            });
+
+            // Link session to investigation
+            await this.app.apiFetch(`/api/investigations/${investigation.investigation_id}`, {
+                method: 'PUT',
+                body: JSON.stringify({ session_id: session.session_id }),
+            });
+
+            // Update local state
+            investigation.session_id = session.session_id;
+            this.activeInvestigation = investigation;
+
+            // Switch to chat view
+            await this.showChatView(session.session_id, investigation.title);
+        } catch (e) {
+            console.error('Failed to start investigation chat:', e);
         }
     }
+
+    // ---- Intake panel ----
+
+    openIntakePanel() {
+        this.intakePanelOpen = true;
+        const panel = document.getElementById('triageIntakePanel');
+        const body = document.getElementById('triageBody');
+        if (panel) panel.style.display = 'flex';
+        if (body) body.classList.add('triage-window__body--intake-open');
+
+        // Clear form
+        ['intakeCaseId', 'intakeTitle', 'intakeSystems', 'intakeDescription'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        const sev = document.getElementById('intakeSeverity');
+        if (sev) sev.value = 'medium';
+        const status = document.getElementById('intakeFetchStatus');
+        if (status) status.innerHTML = '';
+
+        // Focus case ID
+        setTimeout(() => {
+            const el = document.getElementById('intakeCaseId');
+            if (el) el.focus();
+        }, 100);
+    }
+
+    closeIntakePanel() {
+        this.intakePanelOpen = false;
+        const panel = document.getElementById('triageIntakePanel');
+        const body = document.getElementById('triageBody');
+        if (panel) panel.style.display = 'none';
+        if (body) body.classList.remove('triage-window__body--intake-open');
+    }
+
+    async fetchCaseData() {
+        const caseId = document.getElementById('intakeCaseId')?.value.trim();
+        if (!caseId) return;
+
+        const btn = document.getElementById('btnFetchCase');
+        const status = document.getElementById('intakeFetchStatus');
+
+        if (btn) { btn.textContent = 'Fetching...'; btn.disabled = true; }
+        if (status) status.innerHTML = '<span class="intake-panel__fetch-loading">Querying sources...</span>';
+
+        try {
+            const data = await this.app.apiFetch('/api/investigations/fetch-case', {
+                method: 'POST',
+                body: JSON.stringify({ case_id: caseId }),
+            });
+
+            // Populate form fields
+            const titleEl = document.getElementById('intakeTitle');
+            const sevEl = document.getElementById('intakeSeverity');
+            const sysEl = document.getElementById('intakeSystems');
+            const descEl = document.getElementById('intakeDescription');
+
+            if (titleEl && data.title) titleEl.value = data.title;
+            if (sevEl && data.severity) sevEl.value = data.severity;
+            if (sysEl && data.affected_systems) sysEl.value = (data.affected_systems || []).join(', ');
+            if (descEl && data.description) descEl.value = data.description;
+
+            const source = data.source || data._source || 'unknown';
+            if (status) status.innerHTML = `<span class="intake-panel__fetch-success">Populated from ${this.app.escapeHtml(source)}</span>`;
+
+        } catch (e) {
+            if (status) status.innerHTML = `<span class="intake-panel__fetch-error">Failed: ${this.app.escapeHtml(e.message)}</span>`;
+        } finally {
+            if (btn) { btn.textContent = 'Fetch'; btn.disabled = false; }
+        }
+    }
+
+    async submitInvestigation() {
+        const title = document.getElementById('intakeTitle')?.value.trim();
+        if (!title) {
+            document.getElementById('intakeTitle')?.focus();
+            return;
+        }
+
+        const severity = document.getElementById('intakeSeverity')?.value || 'medium';
+        const systems = (document.getElementById('intakeSystems')?.value || '')
+            .split(',').map(s => s.trim()).filter(Boolean);
+        const description = document.getElementById('intakeDescription')?.value.trim() || '';
+
+        try {
+            await this.app.apiFetch('/api/investigations', {
+                method: 'POST',
+                body: JSON.stringify({
+                    title, severity, affected_systems: systems, description,
+                    workspace_id: this.app.activeWorkspaceId,
+                }),
+            });
+            this.closeIntakePanel();
+            this.fetchInvestigations();
+        } catch (e) {
+            console.error('Failed to create investigation:', e);
+        }
+    }
+
+    // ---- Investigation actions ----
 
     async toggleChecklistItem(investigationId, checklist, idx) {
         checklist[idx].checked = !checklist[idx].checked;
@@ -207,81 +431,17 @@ class TriageWindow {
         try {
             await this.app.apiFetch(`/api/investigations/${investigationId}/resolve`, { method: 'POST' });
             this.fetchInvestigations();
-            document.getElementById('investigationDetail').style.display = 'none';
+            document.getElementById('triageDetailView').style.display = 'none';
+            document.getElementById('triageEmptyState').style.display = 'flex';
             this.activeInvestigationId = null;
+            this.activeInvestigation = null;
+            this.centerView = 'empty';
         } catch (e) {
             console.error('Failed to resolve:', e);
         }
     }
 
-    openNewInvestigationDialog() {
-        const overlay = document.createElement('div');
-        overlay.className = 'investigation-dialog-overlay';
-        overlay.innerHTML = `
-            <div class="dialog">
-                <div class="dialog__header">
-                    <h2 class="dialog__title">New Investigation</h2>
-                    <button class="dialog__close" id="btnCloseInvestigation">&#10005;</button>
-                </div>
-                <div class="dialog__body">
-                    <label class="dialog__label">Title
-                        <input type="text" class="dialog__input" id="invTitle" placeholder="e.g. API latency spike" autofocus>
-                    </label>
-                    <label class="dialog__label">Severity
-                        <select class="dialog__select" id="invSeverity">
-                            <option value="critical">Critical</option>
-                            <option value="high">High</option>
-                            <option value="medium" selected>Medium</option>
-                            <option value="low">Low</option>
-                        </select>
-                    </label>
-                    <label class="dialog__label">Affected Systems (comma-separated)
-                        <input type="text" class="dialog__input" id="invSystems" placeholder="e.g. api-gateway, nginx">
-                    </label>
-                    <label class="dialog__label">Description
-                        <textarea class="dialog__input" id="invDescription" rows="3" placeholder="What's happening?"></textarea>
-                    </label>
-                </div>
-                <div class="dialog__footer">
-                    <button class="dialog__btn dialog__btn--secondary" id="btnCancelInvestigation">Cancel</button>
-                    <button class="dialog__btn dialog__btn--primary" id="btnSubmitInvestigation">Create Investigation</button>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(overlay);
-
-        const close = () => overlay.remove();
-        overlay.querySelector('#btnCloseInvestigation').addEventListener('click', close);
-        overlay.querySelector('#btnCancelInvestigation').addEventListener('click', close);
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-
-        overlay.querySelector('#btnSubmitInvestigation').addEventListener('click', async () => {
-            const title = overlay.querySelector('#invTitle').value.trim();
-            if (!title) { overlay.querySelector('#invTitle').focus(); return; }
-
-            const severity = overlay.querySelector('#invSeverity').value;
-            const systems = overlay.querySelector('#invSystems').value.split(',').map(s => s.trim()).filter(Boolean);
-            const description = overlay.querySelector('#invDescription').value.trim();
-
-            try {
-                await this.app.apiFetch('/api/investigations', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        title, severity, affected_systems: systems, description,
-                        workspace_id: this.app.activeWorkspaceId,
-                    }),
-                });
-                close();
-                this.fetchInvestigations();
-            } catch (e) {
-                console.error('Failed to create investigation:', e);
-                alert(`Failed: ${e.message}`);
-            }
-        });
-
-        setTimeout(() => overlay.querySelector('#invTitle').focus(), 50);
-    }
+    // ---- Utilities ----
 
     timeAgo(dateStr) {
         if (!dateStr) return '';

@@ -1013,6 +1013,31 @@ class AgentManagerApp {
         }
     }
 
+    /**
+     * Move the conversation view DOM into a different container.
+     * Used by Triage to embed chat inline without duplicating logic.
+     * Call returnChat() to move it back to the Inbox window.
+     */
+    reparentChat(targetContainerId) {
+        const conv = document.getElementById('conversationView');
+        const target = document.getElementById(targetContainerId);
+        if (conv && target) {
+            this._chatOriginalParent = conv.parentElement;
+            target.appendChild(conv);
+        }
+    }
+
+    /**
+     * Return the conversation view to its original parent (Inbox window).
+     */
+    returnChat() {
+        const conv = document.getElementById('conversationView');
+        if (conv && this._chatOriginalParent) {
+            this._chatOriginalParent.appendChild(conv);
+            this._chatOriginalParent = null;
+        }
+    }
+
     // ---- Rendering ----
 
     render() {
