@@ -395,9 +395,18 @@ select {
    ================================================================ */
 
 .layout {
-    display: grid;
-    grid-template-columns: var(--sidebar-width) 1fr;
+    display: flex;
     height: calc(100vh - var(--topbar-height) - var(--tabbar-height) - 28px - 30px);
+}
+
+.layout > .sidebar {
+    width: var(--sidebar-width);
+    flex-shrink: 0;
+}
+
+.layout > .main {
+    flex: 1;
+    min-width: 0;
 }
 
 /* ================================================================

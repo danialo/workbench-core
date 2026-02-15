@@ -4,7 +4,7 @@
  * Connects to /api/agents/stream (SSE) for real-time updates.
  * Renders agent items with status dots and inline approve buttons.
  *
- * Also manages the dockable Agent Activity Panel which expands from the HUD.
+ * Also manages the inline resizable Agent Activity Panel.
  */
 
 class AgentHud {
@@ -13,7 +13,9 @@ class AgentHud {
         this.agents = {};
         this.stream = null;
         this.panelOpen = false;
-        this.panelDock = 'right'; // 'right' or 'left'
+        this._resizing = false;
+        this._resizeStartX = 0;
+        this._resizeStartWidth = 0;
     }
 
     start() {
@@ -28,9 +30,11 @@ class AgentHud {
         if (closeBtn) {
             closeBtn.addEventListener('click', () => this.closePanel());
         }
-        const dockBtn = document.getElementById('btnDockPanel');
-        if (dockBtn) {
-            dockBtn.addEventListener('click', () => this.toggleDock());
+
+        // Resize handle
+        const handle = document.getElementById('agentPanelResizeHandle');
+        if (handle) {
+            handle.addEventListener('mousedown', (e) => this._startResize(e));
         }
 
         try {
@@ -64,19 +68,22 @@ class AgentHud {
     }
 
     handleUpdate(data) {
+        const prevAgent = this.agents[data.session_id];
+        this.agents[data.session_id] = data;
+
         if (data.status === 'completed' || data.status === 'error') {
             // Keep for 30s then remove
-            this.agents[data.session_id] = data;
             setTimeout(() => {
                 delete this.agents[data.session_id];
                 this.render();
-                if (this.panelOpen) this.renderPanel();
+                this.renderPanel();
+                this.renderInboxNotifications();
             }, 30000);
-        } else {
-            this.agents[data.session_id] = data;
         }
+
         this.render();
-        if (this.panelOpen) this.renderPanel();
+        this.renderPanel();
+        this.renderInboxNotifications();
     }
 
     render() {
@@ -94,7 +101,8 @@ class AgentHud {
             const item = document.createElement('div');
             item.className = 'agent-hud__item';
 
-            const statusClass = `agent-hud__dot--${agent.status || 'running'}`;
+            const status = agent.pending_confirmation ? 'waiting' : (agent.status || 'running');
+            const statusClass = `agent-hud__dot--${status}`;
             const action = agent.current_action || '';
             const wsName = agent.workspace_name || 'Unknown';
 
@@ -130,7 +138,7 @@ class AgentHud {
         }
     }
 
-    // ---- Agent Activity Panel ----
+    // ---- Agent Activity Panel (inline) ----
 
     togglePanel() {
         if (this.panelOpen) {
@@ -146,13 +154,7 @@ class AgentHud {
 
         this.panelOpen = true;
         panel.style.display = 'flex';
-        panel.className = `agent-panel agent-panel--${this.panelDock}`;
         this.renderPanel();
-
-        // Animate in
-        requestAnimationFrame(() => {
-            panel.classList.add('agent-panel--open');
-        });
     }
 
     closePanel() {
@@ -160,23 +162,47 @@ class AgentHud {
         if (!panel) return;
 
         this.panelOpen = false;
-        panel.classList.remove('agent-panel--open');
-        setTimeout(() => {
-            panel.style.display = 'none';
-        }, 200);
+        panel.style.display = 'none';
     }
 
-    toggleDock() {
-        this.panelDock = this.panelDock === 'right' ? 'left' : 'right';
+    // ---- Resize handle ----
+
+    _startResize(e) {
+        e.preventDefault();
         const panel = document.getElementById('agentPanel');
-        if (panel && this.panelOpen) {
-            panel.className = `agent-panel agent-panel--${this.panelDock} agent-panel--open`;
-        }
+        if (!panel) return;
+
+        this._resizing = true;
+        this._resizeStartX = e.clientX;
+        this._resizeStartWidth = panel.offsetWidth;
+
+        const handle = document.getElementById('agentPanelResizeHandle');
+        if (handle) handle.classList.add('agent-panel__resize-handle--active');
+
+        const onMove = (ev) => {
+            if (!this._resizing) return;
+            const delta = this._resizeStartX - ev.clientX; // dragging left increases width
+            const newWidth = Math.max(200, Math.min(500, this._resizeStartWidth + delta));
+            panel.style.width = newWidth + 'px';
+        };
+
+        const onUp = () => {
+            this._resizing = false;
+            if (handle) handle.classList.remove('agent-panel__resize-handle--active');
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
     }
+
+    // ---- Panel rendering ----
 
     renderPanel() {
         const body = document.getElementById('agentPanelBody');
         if (!body) return;
+        if (!this.panelOpen) return;
 
         const entries = Object.values(this.agents);
         if (entries.length === 0) {
@@ -189,11 +215,10 @@ class AgentHud {
         for (const agent of entries) {
             const wsName = agent.workspace_name || 'Unknown';
             const wsId = agent.workspace_id || 'unknown';
-            const key = wsId;
-            if (!groups[key]) {
-                groups[key] = { name: wsName, agents: [] };
+            if (!groups[wsId]) {
+                groups[wsId] = { name: wsName, agents: [] };
             }
-            groups[key].agents.push(agent);
+            groups[wsId].agents.push(agent);
         }
 
         body.innerHTML = '';
@@ -215,7 +240,8 @@ class AgentHud {
                 const item = document.createElement('div');
                 item.className = 'agent-panel__agent';
 
-                const statusClass = `agent-panel__status-dot--${agent.status || 'running'}`;
+                const status = agent.pending_confirmation ? 'waiting' : (agent.status || 'running');
+                const statusClass = `agent-panel__status-dot--${status}`;
                 const sessionShort = (agent.session_id || '').substring(0, 8);
                 const action = agent.current_action || 'Idle';
                 const age = this.formatAge(agent.started_at);
@@ -240,7 +266,6 @@ class AgentHud {
                     if (e.target.classList.contains('agent-panel__approve-btn')) return;
                     this.app.switchWindow('inbox');
                     this.app.selectSession(agent.session_id);
-                    this.closePanel();
                 });
 
                 // Wire approve button
@@ -256,6 +281,55 @@ class AgentHud {
             }
 
             body.appendChild(section);
+        }
+    }
+
+    // ---- Inbox waiting notifications ----
+
+    renderInboxNotifications() {
+        const container = document.getElementById('inboxWaitingNotices');
+        if (!container) {
+            // Create container if it doesn't exist yet
+            const inboxList = document.getElementById('inboxList');
+            if (!inboxList) return;
+            const notices = document.createElement('div');
+            notices.id = 'inboxWaitingNotices';
+            inboxList.parentNode.insertBefore(notices, inboxList);
+        }
+
+        const noticeContainer = document.getElementById('inboxWaitingNotices');
+        if (!noticeContainer) return;
+
+        // Find agents that are waiting for user input
+        const waitingAgents = Object.values(this.agents).filter(a => a.pending_confirmation);
+
+        if (waitingAgents.length === 0) {
+            noticeContainer.innerHTML = '';
+            return;
+        }
+
+        noticeContainer.innerHTML = '';
+        for (const agent of waitingAgents) {
+            const notice = document.createElement('div');
+            notice.className = 'inbox-waiting-notice';
+
+            const wsName = agent.workspace_name || 'Unknown';
+            const toolName = agent.pending_confirmation?.tool_name || 'action';
+
+            notice.innerHTML = `
+                <span class="inbox-waiting-notice__dot"></span>
+                <span class="inbox-waiting-notice__text">
+                    <strong>${this.app.escapeHtml(wsName)}</strong> is waiting for approval on <strong>${this.app.escapeHtml(toolName)}</strong>
+                </span>
+                <span class="inbox-waiting-notice__action">View →</span>
+            `;
+
+            notice.addEventListener('click', () => {
+                this.app.switchWindow('inbox');
+                this.app.selectSession(agent.session_id);
+            });
+
+            noticeContainer.appendChild(notice);
         }
     }
 

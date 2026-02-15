@@ -79,20 +79,6 @@
         <button class="agent-hud__expand-btn" id="btnExpandAgentPanel" title="Expand agent panel">⊞</button>
     </div>
 
-    <!-- AGENT ACTIVITY PANEL (slides in from side) -->
-    <div class="agent-panel" id="agentPanel" style="display:none">
-        <div class="agent-panel__header">
-            <span class="agent-panel__title">Agent Activity</span>
-            <div class="agent-panel__header-actions">
-                <button class="agent-panel__dock-btn" id="btnDockPanel" title="Dock left/right">⇄</button>
-                <button class="agent-panel__close-btn" id="btnCloseAgentPanel" title="Close">✕</button>
-            </div>
-        </div>
-        <div class="agent-panel__body" id="agentPanelBody">
-            <div class="agent-panel__empty">No active agents</div>
-        </div>
-    </div>
-
     <!-- WINDOW TAB BAR -->
     <div class="window-tabs" id="windowTabs">
         <button class="window-tab window-tab--active" data-window="inbox" id="tabInbox">
@@ -320,6 +306,20 @@
                 </div>
             </div>
         </main>
+
+        <!-- AGENT ACTIVITY PANEL (inline resizable) -->
+        <aside class="agent-panel" id="agentPanel" style="display:none">
+            <div class="agent-panel__resize-handle" id="agentPanelResizeHandle"></div>
+            <div class="agent-panel__header">
+                <span class="agent-panel__title">Agent Activity</span>
+                <div class="agent-panel__header-actions">
+                    <button class="agent-panel__close-btn" id="btnCloseAgentPanel" title="Close panel">✕</button>
+                </div>
+            </div>
+            <div class="agent-panel__body" id="agentPanelBody">
+                <div class="agent-panel__empty">No active agents</div>
+            </div>
+        </aside>
     </div>
 
     <script src="/static/agent-hud.js"></script>
