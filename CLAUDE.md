@@ -58,8 +58,8 @@ The orchestrator loop: build context → call LLM → if tool calls, validate + 
 | `workbench/web/routes/agents.py` | Agent SSE stream and status endpoints |
 | `workbench/web/integrations.json.example` | Pluggable case source config (Glean, Jira, ServiceNow) |
 | `workbench/web/static/index.html` | Operations Center SPA — Inbox, Triage, Evidence tabs |
-| `workbench/web/static/app.js` | Core app class — routing, SSE chat, session mgmt, tool call cards |
-| `workbench/web/static/index.css` | Global styles, flexbox layout, tool call group styles |
+| `workbench/web/static/app.js` | Core app class — routing, SSE chat, session mgmt, tool call cards, settings/overlay panels, sidebar resize |
+| `workbench/web/static/index.css` | Global styles, flexbox layout, tool call groups, settings panel, overlay styles |
 | `workbench/web/static/triage.js` | `TriageWindow` class — investigations, intake panel, search, embedded chat |
 | `workbench/web/static/triage.css` | Three-panel grid layout for triage |
 | `workbench/web/static/agent-hud.js` | `AgentHud` class — SSE stream, resize, color-coded status, notifications |
@@ -108,6 +108,9 @@ pytest tests/ -v                    # Run all tests
 - **Integrations config**: User copies `integrations.json.example` to `~/.workbench/integrations.json`. Sources can be `"type": "agent"` (orchestrator-driven) or `"type": "api"` (direct HTTP).
 - **Route ordering matters**: Static path routes (`/integrations`, `/fetch-case`) must be registered before parameterized routes (`/{investigation_id}`) in FastAPI.
 - **CSRF protection**: All POST/PUT/DELETE require `X-CSRF-Token` header. Token fetched from `GET /api/csrf-token`.
+- **Settings panel**: Gear icon (top bar) or sidebar Settings button opens a tabbed overlay (General, LLM, Agents, Integrations, Policy). Ctrl+, shortcut. Escape or backdrop click to close.
+- **Sidebar overlays**: Bottom nav buttons (Knowledge, Browser, Feedback) open generic `panel-overlay` modals. All use `data-close-overlay` attribute pattern and `openOverlay(id)` / `closeOverlay(id)` methods.
+- **Sidebar resize**: Drag handle between sidebar and main content. Min 160px, max 480px. Uses `initSidebarResize()` in app.js.
 
 ## Gotchas
 

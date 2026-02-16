@@ -90,7 +90,7 @@ Inside chat you get inline commands: `/tools`, `/history`, `/switch <provider>`,
 wb web --host 0.0.0.0 --port 8080    # Operations Center
 ```
 
-The web UI runs a FastAPI server with SSE streaming and serves a single-page app at the root. Tabs: **Inbox** (chat, conversations, workspace browser), **Triage** (investigation management), **Evidence** (audit trail — coming soon). An inline resizable agent activity panel shows running agents with color-coded status.
+The web UI runs a FastAPI server with SSE streaming and serves a single-page app at the root. Tabs: **Inbox** (chat, conversations, workspace browser), **Triage** (investigation management), **Evidence** (audit trail — coming soon). An inline resizable agent activity panel shows running agents with color-coded status. Sidebar bottom nav provides access to **Knowledge**, **Browser**, **Settings**, and **Feedback** overlays. The settings panel includes tabbed navigation for General, LLM/Providers, Agents, Integrations, and Policy & Security. Panels are resizable via drag handles.
 
 ## Architecture
 
@@ -331,6 +331,10 @@ pip install -e ".[dev]"         # pytest, ruff, coverage
 - **Agent System** -- Multi-agent orchestration with config, task queues, and monitoring
 - **VS Code Extension** -- `wb serve` + chat panel
 - **Adapter Pack** -- Separate repo with vendor backends (K8s, vendor APIs, ticketing) via entry points
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
 
 * * * * *
 Disclaimer: This project was built with Claude Code.
