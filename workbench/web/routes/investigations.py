@@ -56,7 +56,8 @@ class FetchCaseRequest(BaseModel):
 async def ensure_investigations_table(db_path: str) -> None:
     """Create the investigations table if it doesn't exist.
 
-    Also migrates from the old 'incidents' table name if present.
+    Also migrates from the old 'incidents' table name if present,
+    and renames incident_id → investigation_id if needed.
     """
     resolved = str(Path(db_path).expanduser())
     async with aiosqlite.connect(resolved) as db:
@@ -66,9 +67,16 @@ async def ensure_investigations_table(db_path: str) -> None:
         )
         if await cursor.fetchone():
             await db.execute("ALTER TABLE incidents RENAME TO investigations")
-            # Rename the primary key column
-            # SQLite doesn't support RENAME COLUMN before 3.25, so we
-            # just keep incident_id as-is in the data — queries alias it
+            await db.commit()
+
+        # Check if the column is still named incident_id and rename it
+        cursor = await db.execute("PRAGMA table_info(investigations)")
+        columns = await cursor.fetchall()
+        col_names = [col[1] for col in columns]
+        if "incident_id" in col_names and "investigation_id" not in col_names:
+            await db.execute(
+                "ALTER TABLE investigations RENAME COLUMN incident_id TO investigation_id"
+            )
             await db.commit()
 
         await db.execute("""
@@ -198,6 +206,101 @@ async def create_investigation(req: CreateInvestigationRequest, request: Request
     })
 
 
+# -----------------------------------------------------------------------
+# Integration config & case fetch (must be before /{investigation_id} routes)
+# -----------------------------------------------------------------------
+
+_INTEGRATIONS_USER_PATH = Path.home() / ".workbench" / "integrations.json"
+_INTEGRATIONS_EXAMPLE_PATH = Path(__file__).parent.parent / "integrations.json.example"
+_TMP_DIR = Path.home() / ".workbench" / "tmp"
+
+
+def _load_integrations_config() -> dict:
+    """Load integrations config from user path, falling back to example."""
+    for path in (_INTEGRATIONS_USER_PATH, _INTEGRATIONS_EXAMPLE_PATH):
+        if path.exists():
+            try:
+                return json.loads(path.read_text())
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning("Failed to load integrations from %s: %s", path, e)
+    return {"version": 1, "integrations": {"case_sources": []}}
+
+
+@router.get("/integrations")
+async def list_integrations():
+    """Return configured integration sources (for UI dropdown)."""
+    config = _load_integrations_config()
+    sources = config.get("integrations", {}).get("case_sources", [])
+    return JSONResponse({
+        "sources": [
+            {
+                "name": s.get("name", ""),
+                "type": s.get("type", ""),
+                "enabled": s.get("enabled", False),
+                "description": s.get("description", ""),
+            }
+            for s in sources
+        ]
+    })
+
+
+@router.post("/fetch-case")
+async def fetch_case_data(req: FetchCaseRequest, request: Request):
+    """Fetch case data from configured external sources.
+
+    Reads ~/.workbench/integrations.json for enabled sources.
+    For 'agent' type sources, dispatches an orchestrator with the prompt template.
+    For 'api' type sources, returns a stub (actual HTTP calls to be wired later).
+    Saves fetched context to ~/.workbench/tmp/{case_id}.json.
+    """
+    config = _load_integrations_config()
+    sources = config.get("integrations", {}).get("case_sources", [])
+    enabled = [s for s in sources if s.get("enabled")]
+
+    case_id = req.case_id.strip()
+
+    # Ensure tmp directory exists
+    _TMP_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Try each enabled source in order
+    for source in enabled:
+        source_type = source.get("type", "")
+        source_name = source.get("name", "unknown")
+
+        if source_type == "agent":
+            result = await _fetch_case_via_agent(case_id, source, request)
+            if result:
+                _save_case_to_tmp(case_id, result, source_name)
+                return JSONResponse(result)
+
+        elif source_type == "api":
+            # Stub — actual HTTP integration wired per-deployment
+            logger.info(
+                "API source '%s' enabled but not yet wired — skipping", source_name
+            )
+            continue
+
+    # No enabled sources or all failed — return mock data
+    mock = {
+        "title": f"Case {case_id}",
+        "severity": "medium",
+        "affected_systems": [],
+        "description": (
+            "No integration sources are configured or enabled. "
+            "Copy integrations.json.example to ~/.workbench/integrations.json "
+            "and enable a source."
+        ),
+        "source": "mock",
+        "case_id": case_id,
+    }
+    _save_case_to_tmp(case_id, mock, "mock")
+    return JSONResponse(mock)
+
+
+# -----------------------------------------------------------------------
+# Parameterized investigation routes
+# -----------------------------------------------------------------------
+
 @router.get("/{investigation_id}")
 async def get_investigation(investigation_id: str, request: Request):
     """Get investigation detail."""
@@ -309,79 +412,6 @@ async def resolve_investigation(investigation_id: str, request: Request):
     return JSONResponse({"status": "resolved", "investigation_id": investigation_id})
 
 
-# -----------------------------------------------------------------------
-# Integration config & case fetch
-# -----------------------------------------------------------------------
-
-_INTEGRATIONS_USER_PATH = Path.home() / ".workbench" / "integrations.json"
-_INTEGRATIONS_EXAMPLE_PATH = Path(__file__).parent.parent / "integrations.json.example"
-_TMP_DIR = Path.home() / ".workbench" / "tmp"
-
-
-def _load_integrations_config() -> dict:
-    """Load integrations config from user path, falling back to example."""
-    for path in (_INTEGRATIONS_USER_PATH, _INTEGRATIONS_EXAMPLE_PATH):
-        if path.exists():
-            try:
-                return json.loads(path.read_text())
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning("Failed to load integrations from %s: %s", path, e)
-    return {"version": 1, "integrations": {"case_sources": []}}
-
-
-@router.post("/fetch-case")
-async def fetch_case_data(req: FetchCaseRequest, request: Request):
-    """Fetch case data from configured external sources.
-
-    Reads ~/.workbench/integrations.json for enabled sources.
-    For 'agent' type sources, dispatches an orchestrator with the prompt template.
-    For 'api' type sources, returns a stub (actual HTTP calls to be wired later).
-    Saves fetched context to ~/.workbench/tmp/{case_id}.json.
-    """
-    config = _load_integrations_config()
-    sources = config.get("integrations", {}).get("case_sources", [])
-    enabled = [s for s in sources if s.get("enabled")]
-
-    case_id = req.case_id.strip()
-
-    # Ensure tmp directory exists
-    _TMP_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Try each enabled source in order
-    for source in enabled:
-        source_type = source.get("type", "")
-        source_name = source.get("name", "unknown")
-
-        if source_type == "agent":
-            result = await _fetch_case_via_agent(case_id, source, request)
-            if result:
-                _save_case_to_tmp(case_id, result, source_name)
-                return JSONResponse(result)
-
-        elif source_type == "api":
-            # Stub — actual HTTP integration wired per-deployment
-            logger.info(
-                "API source '%s' enabled but not yet wired — skipping", source_name
-            )
-            continue
-
-    # No enabled sources or all failed — return mock data
-    mock = {
-        "title": f"Case {case_id}",
-        "severity": "medium",
-        "affected_systems": [],
-        "description": (
-            "No integration sources are configured or enabled. "
-            "Copy integrations.json.example to ~/.workbench/integrations.json "
-            "and enable a source."
-        ),
-        "source": "mock",
-        "case_id": case_id,
-    }
-    _save_case_to_tmp(case_id, mock, "mock")
-    return JSONResponse(mock)
-
-
 async def _fetch_case_via_agent(
     case_id: str, source: dict, request: Request
 ) -> dict | None:
@@ -450,21 +480,3 @@ def _save_case_to_tmp(case_id: str, data: dict, source_name: str) -> None:
     payload = {**data, "_source": source_name, "_fetched_at": datetime.now(timezone.utc).isoformat()}
     file_path.write_text(json.dumps(payload, indent=2))
     logger.info("Saved case context to %s", file_path)
-
-
-@router.get("/integrations")
-async def list_integrations():
-    """Return configured integration sources (for UI dropdown)."""
-    config = _load_integrations_config()
-    sources = config.get("integrations", {}).get("case_sources", [])
-    return JSONResponse({
-        "sources": [
-            {
-                "name": s.get("name", ""),
-                "type": s.get("type", ""),
-                "enabled": s.get("enabled", False),
-                "description": s.get("description", ""),
-            }
-            for s in sources
-        ]
-    })
