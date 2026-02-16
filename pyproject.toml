@@ -7,7 +7,7 @@ name = "workbench-core"
 version = "0.1.0"
 description = "Portable support and diagnostics workbench runtime"
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 dependencies = [
     "jsonschema>=4.20",
     "aiosqlite>=0.19",

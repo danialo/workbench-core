@@ -50,7 +50,8 @@
 - [ ] Add custom checklist items (input field in detail view)
 - [ ] Remove checklist items
 - [ ] Auto-select newly created investigation after submit
-- [ ] Frontload investigation context into chat — when conversation is linked to an investigation, inject title, severity, systems, description, and any fetched case data as system context so the LLM has full awareness
+- [ ] **Context editor panel** — editable panel showing what gets injected into the LLM as system context for this investigation. User can toggle fields on/off (title, severity, systems, description, case data), edit values before they're sent, add free-form context notes, and reorder priority. Gives full control over what the agent "knows" going in
+- [ ] Frontload investigation context into chat — when conversation is linked to an investigation, inject the context editor contents as system context so the LLM has full awareness
 - [ ] Seed first message from case data (pre-populate initial prompt with case summary)
 - [ ] Wire real API integrations (Jira, ServiceNow HTTP calls)
 - [ ] Investigation hierarchy — subdirectories for notes, evidence, questions, escalations
@@ -98,8 +99,17 @@
 - [ ] Save/restore layout preferences per workspace
 - [ ] Menu bar: Edit (undo/redo/copy/paste), View (fullscreen)
 
+### Document Model
+- [ ] Define core document model — what is a "document" in the system (investigation notes, runbooks, agent output, knowledge files, evidence artifacts)
+- [ ] Document schema: type, title, content, metadata, parent (investigation/session/workspace), timestamps
+- [ ] Storage layer — SQLite, filesystem, or hybrid
+- [ ] Document CRUD API endpoints
+- [ ] Link documents to investigations, sessions, and agents
+- [ ] Versioning / revision history
+- [ ] Document viewer/editor in the UI
+
 ### Infrastructure
-- [ ] Reverse tunnel / Fuse for remote access
+- [ ] Reverse tunnel for remote access
 - [ ] Agent collaboration/communication system
 - [ ] Shared context between agents
 - [ ] Agent performance metrics

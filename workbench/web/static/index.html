@@ -50,11 +50,6 @@
         <div class="top-bar__right">
             <button class="top-bar__action" id="btnOpenEditor">Open Editor</button>
             <button class="top-bar__icon-btn" id="btnSettings" title="Settings">⚙</button>
-            <div class="top-bar__window-controls">
-                <button class="wc wc--minimize" title="Minimize">—</button>
-                <button class="wc wc--maximize" title="Maximize">□</button>
-                <button class="wc wc--close" title="Close">✕</button>
-            </div>
         </div>
     </header>
 
@@ -183,6 +178,8 @@
                 <button class="sidebar__nav-item" id="navFeedback">💬 <span>Provide Feedback</span></button>
             </nav>
         </aside>
+
+        <div class="layout__resize-handle" id="sidebarResizeHandle"></div>
 
         <!-- MAIN CONTENT -->
         <main class="main" id="mainContent">
@@ -396,6 +393,98 @@
                 <div class="agent-panel__empty">No active agents</div>
             </div>
         </aside>
+    </div>
+
+    <!-- KNOWLEDGE OVERLAY -->
+    <div class="panel-overlay" id="knowledgeOverlay" style="display:none">
+        <div class="panel-overlay__panel panel-overlay__panel--wide">
+            <div class="panel-overlay__header">
+                <h2 class="panel-overlay__title">Knowledge</h2>
+                <button class="panel-overlay__close-btn" data-close-overlay="knowledgeOverlay" title="Close">✕</button>
+            </div>
+            <div class="panel-overlay__body">
+                <div class="panel-overlay__placeholder">
+                    <div class="panel-overlay__placeholder-icon">📚</div>
+                    <h3>Knowledge Base</h3>
+                    <p>Per-workspace memory files, agent context, runbooks, and shared reference documents. Upload files or let agents build knowledge over time.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BROWSER OVERLAY -->
+    <div class="panel-overlay" id="browserOverlay" style="display:none">
+        <div class="panel-overlay__panel panel-overlay__panel--wide">
+            <div class="panel-overlay__header">
+                <h2 class="panel-overlay__title">Browser</h2>
+                <button class="panel-overlay__close-btn" data-close-overlay="browserOverlay" title="Close">✕</button>
+            </div>
+            <div class="panel-overlay__body">
+                <div class="panel-overlay__placeholder">
+                    <div class="panel-overlay__placeholder-icon">🌐</div>
+                    <h3>Embedded Browser</h3>
+                    <p>Browse documentation, dashboards, and external tools without leaving the Operations Center. Agent-driven web navigation coming soon.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FEEDBACK OVERLAY -->
+    <div class="panel-overlay" id="feedbackOverlay" style="display:none">
+        <div class="panel-overlay__panel">
+            <div class="panel-overlay__header">
+                <h2 class="panel-overlay__title">Provide Feedback</h2>
+                <button class="panel-overlay__close-btn" data-close-overlay="feedbackOverlay" title="Close">✕</button>
+            </div>
+            <div class="panel-overlay__body">
+                <div class="panel-overlay__placeholder">
+                    <div class="panel-overlay__placeholder-icon">💬</div>
+                    <h3>We'd Love Your Feedback</h3>
+                    <p>Report bugs, suggest features, or share how you're using the Operations Center. Feedback form and issue tracker integration coming soon.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS OVERLAY -->
+    <div class="settings-overlay" id="settingsOverlay" style="display:none">
+        <div class="settings-panel">
+            <div class="settings-panel__header">
+                <h2 class="settings-panel__title">Settings</h2>
+                <button class="settings-panel__close-btn" id="btnCloseSettings" title="Close">✕</button>
+            </div>
+            <div class="settings-panel__body">
+                <div class="settings-panel__nav">
+                    <button class="settings-panel__nav-item settings-panel__nav-item--active" data-settings-tab="general">General</button>
+                    <button class="settings-panel__nav-item" data-settings-tab="llm">LLM / Providers</button>
+                    <button class="settings-panel__nav-item" data-settings-tab="agents">Agents</button>
+                    <button class="settings-panel__nav-item" data-settings-tab="integrations">Integrations</button>
+                    <button class="settings-panel__nav-item" data-settings-tab="policy">Policy & Security</button>
+                </div>
+                <div class="settings-panel__content" id="settingsContent">
+                    <div class="settings-tab" id="settingsTabGeneral">
+                        <h3 class="settings-tab__heading">General</h3>
+                        <p class="settings-tab__placeholder">Theme, layout preferences, and workspace defaults will be configurable here.</p>
+                    </div>
+                    <div class="settings-tab" id="settingsTabLlm" style="display:none">
+                        <h3 class="settings-tab__heading">LLM / Providers</h3>
+                        <p class="settings-tab__placeholder">Model selection, API endpoints, temperature, and token limits.</p>
+                    </div>
+                    <div class="settings-tab" id="settingsTabAgents" style="display:none">
+                        <h3 class="settings-tab__heading">Agents</h3>
+                        <p class="settings-tab__placeholder">Agent registry, default configs, skill assignments, and risk policies.</p>
+                    </div>
+                    <div class="settings-tab" id="settingsTabIntegrations" style="display:none">
+                        <h3 class="settings-tab__heading">Integrations</h3>
+                        <p class="settings-tab__placeholder">Case sources (Jira, ServiceNow, Glean), API keys, and webhook configuration.</p>
+                    </div>
+                    <div class="settings-tab" id="settingsTabPolicy" style="display:none">
+                        <h3 class="settings-tab__heading">Policy & Security</h3>
+                        <p class="settings-tab__placeholder">Max risk level, blocked patterns, confirmation rules, and audit settings.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/agent-hud.js"></script>

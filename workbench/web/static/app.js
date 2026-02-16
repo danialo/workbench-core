@@ -48,6 +48,7 @@ class AgentManagerApp {
         this.render();
         this.agentHud.start();
         this.triageWindow.bindEvents();
+        this.initSidebarResize();
         // Default to inbox view on load
         this.switchView('inbox');
     }
@@ -114,6 +115,12 @@ class AgentManagerApp {
         this.elInboxList = document.getElementById('inboxList');
         this.elInboxEmpty = document.getElementById('inboxEmpty');
         this.elBackBtn = document.getElementById('btnBackToConversation');
+
+        // Settings
+        this.elBtnSettings = document.getElementById('btnSettings');
+        this.elSettingsOverlay = document.getElementById('settingsOverlay');
+        this.elBtnCloseSettings = document.getElementById('btnCloseSettings');
+        this.elSettingsContent = document.getElementById('settingsContent');
     }
 
     // ---- Event Binding ----
@@ -145,6 +152,13 @@ class AgentManagerApp {
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.closeSettings();
+                this.closeOverlay('knowledgeOverlay');
+                this.closeOverlay('browserOverlay');
+                this.closeOverlay('feedbackOverlay');
+                return;
+            }
             if (e.ctrlKey || e.metaKey) {
                 if (e.key === 'n' || e.key === 'N') {
                     e.preventDefault();
@@ -158,8 +172,39 @@ class AgentManagerApp {
                     e.preventDefault();
                     this.closeFileMenu();
                     this.openNewWorkspaceDialog();
+                } else if (e.key === ',' ) {
+                    e.preventDefault();
+                    this.openSettings();
                 }
             }
+        });
+
+        // Settings panel (gear in top bar + sidebar nav)
+        this.elBtnSettings.addEventListener('click', () => this.openSettings());
+        this.elBtnCloseSettings.addEventListener('click', () => this.closeSettings());
+        this.elSettingsOverlay.addEventListener('click', (e) => {
+            if (e.target === this.elSettingsOverlay) this.closeSettings();
+        });
+        // Settings tab navigation
+        this.elSettingsOverlay.querySelectorAll('[data-settings-tab]').forEach(btn => {
+            btn.addEventListener('click', () => this.switchSettingsTab(btn.dataset.settingsTab));
+        });
+
+        // Sidebar bottom nav — overlays
+        document.getElementById('navSettings').addEventListener('click', () => this.openSettings());
+        document.getElementById('navKnowledge').addEventListener('click', () => this.openOverlay('knowledgeOverlay'));
+        document.getElementById('navBrowser').addEventListener('click', () => this.openOverlay('browserOverlay'));
+        document.getElementById('navFeedback').addEventListener('click', () => this.openOverlay('feedbackOverlay'));
+
+        // Generic overlay close buttons (data-close-overlay attribute)
+        document.querySelectorAll('[data-close-overlay]').forEach(btn => {
+            btn.addEventListener('click', () => this.closeOverlay(btn.dataset.closeOverlay));
+        });
+        // Click backdrop to close generic overlays
+        document.querySelectorAll('.panel-overlay').forEach(overlay => {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) this.closeOverlay(overlay.id);
+            });
         });
 
         // Start conversation (under active workspace)
@@ -1113,6 +1158,41 @@ class AgentManagerApp {
         }
     }
 
+    // ---- Settings Panel ----
+
+    openSettings() {
+        this.elSettingsOverlay.style.display = 'flex';
+    }
+
+    closeSettings() {
+        this.elSettingsOverlay.style.display = 'none';
+    }
+
+    switchSettingsTab(tabName) {
+        // Update nav active state
+        this.elSettingsOverlay.querySelectorAll('[data-settings-tab]').forEach(btn => {
+            btn.classList.toggle('settings-panel__nav-item--active', btn.dataset.settingsTab === tabName);
+        });
+        // Show/hide tab content
+        const idMap = { general: 'settingsTabGeneral', llm: 'settingsTabLlm', agents: 'settingsTabAgents', integrations: 'settingsTabIntegrations', policy: 'settingsTabPolicy' };
+        Object.entries(idMap).forEach(([key, id]) => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = key === tabName ? '' : 'none';
+        });
+    }
+
+    // ---- Generic Overlays (Knowledge, Browser, Feedback) ----
+
+    openOverlay(overlayId) {
+        const el = document.getElementById(overlayId);
+        if (el) el.style.display = 'flex';
+    }
+
+    closeOverlay(overlayId) {
+        const el = document.getElementById(overlayId);
+        if (el) el.style.display = 'none';
+    }
+
     // ---- Rendering ----
 
     render() {
@@ -1529,6 +1609,38 @@ class AgentManagerApp {
         const age = this.formatDate(session.created_at);
         if (ws && ws !== 'global') return `${ws} — ${age}`;
         return `New conversation — ${age}`;
+    }
+
+    initSidebarResize() {
+        const handle = document.getElementById('sidebarResizeHandle');
+        const sidebar = document.getElementById('sidebar');
+        const layout = document.querySelector('.layout');
+        if (!handle || !sidebar || !layout) return;
+
+        let startX, startWidth;
+
+        const onMouseMove = (e) => {
+            const delta = e.clientX - startX;
+            const newWidth = Math.max(160, Math.min(480, startWidth + delta));
+            sidebar.style.width = newWidth + 'px';
+        };
+
+        const onMouseUp = () => {
+            handle.classList.remove('layout__resize-handle--active');
+            layout.classList.remove('layout--resizing');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            startX = e.clientX;
+            startWidth = sidebar.getBoundingClientRect().width;
+            handle.classList.add('layout__resize-handle--active');
+            layout.classList.add('layout--resizing');
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
     }
 
     formatDate(dateStr) {
