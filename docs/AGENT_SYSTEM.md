@@ -275,7 +275,26 @@ context_files:
 
 *Similar configs for: test-engineer, ai-engineer, ml-engineer, etc.*
 
-## TUI Integration
+## Web UI — Agent Activity Panel (Implemented)
+
+The web Operations Center includes an inline resizable agent activity panel (`agent-hud.js`) that provides real-time agent monitoring:
+
+- **SSE Stream**: `GET /api/agents/stream` delivers agent state updates
+- **Color-coded status**: Green (running), Yellow (waiting for user), Red (error), Gray (completed)
+- **Inline layout**: Panel sits inside the main flexbox layout, not as an overlay
+- **Resize handle**: Drag left edge to resize, width persists during session
+- **Inbox notifications**: Agents waiting for user input trigger badges in the sidebar
+
+### Key Files
+| File | What It Does |
+|------|-------------|
+| `workbench/web/static/agent-hud.js` | `AgentHud` class — SSE stream, resize, status rendering |
+| `workbench/web/static/agent-hud.css` | Panel styles, color coding, resize handle |
+| `workbench/web/routes/agents.py` | Agent SSE stream and status API endpoints |
+
+This is the current monitoring implementation. The full agent management system (creation, config, task queues) described below is planned but not yet built.
+
+## TUI Integration (Planned)
 
 ### Agent Windows
 

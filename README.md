@@ -6,9 +6,12 @@ Portable support and diagnostics workbench runtime. No employer IP, no vendor lo
 - Tool contract, registry, validation, policy enforcement
 - Provider-agnostic LLM router with streaming and tool-call assembly
 - Session event log, artifact store, replay, runbook export
-- Interfaces: CLI first, then TUI, then VS Code, then optional Web
+- Interfaces: CLI, TUI, Web (Operations Center)
+- Triage system with pluggable case/ticket integration (Jira, ServiceNow, Glean)
 
 Adapters (SSH, K8s, vendor APIs, ticketing systems) plug in later via entry points in a separate repo.
+
+**Web UI** — Operations Center with tabbed windows (Inbox, Triage, Evidence), an inline agent activity panel, pluggable case/ticket integration, and embedded investigation chat.
 
 ## Quickstart
 
@@ -81,12 +84,20 @@ wb tui           # Windowed TUI (recommended)
 
 Inside chat you get inline commands: `/tools`, `/history`, `/switch <provider>`, `/quit`.
 
+### Web UI
+
+```bash
+wb web --host 0.0.0.0 --port 8080    # Operations Center
+```
+
+The web UI runs a FastAPI server with SSE streaming and serves a single-page app at the root. Tabs: **Inbox** (chat, conversations, workspace browser), **Triage** (investigation management), **Evidence** (audit trail — coming soon). An inline resizable agent activity panel shows running agents with color-coded status.
+
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │ Interfaces                                                       │
-│  CLI  |  TUI  |  VS Code  |  Web                                │
+│  CLI  |  TUI  |  Web (Operations Center)  |  VS Code             │
 │                 │                                                │
 │            Orchestrator                                          │
 │     tool dispatch . policy . validation . events . context       │
@@ -159,8 +170,25 @@ workbench-core/
 │   │       ├── events_window.py  # Session event log viewer
 │   │       ├── config_window.py  # Live config viewer
 │   │       └── artifacts_window.py  # Artifact store browser
+│   ├── web/
+│   │   ├── server.py             # FastAPI factory — SSE streaming, CSRF, session mgmt
+│   │   ├── middleware.py         # Auth, CSRF, rate limiting middleware
+│   │   ├── streaming.py          # SSE stream helpers for chat + agent output
+│   │   ├── integrations.json.example  # Pluggable case source config template
+│   │   ├── routes/
+│   │   │   ├── agents.py         # Agent SSE stream + status endpoints
+│   │   │   └── investigations.py # Investigation CRUD, case fetch, integrations
+│   │   └── static/
+│   │       ├── index.html        # Operations Center SPA — tabbed windows
+│   │       ├── index.css         # Global styles, layout, tool call cards
+│   │       ├── app.js            # Core app — routing, SSE chat, session mgmt
+│   │       ├── triage.js         # Triage window — investigations, intake, search
+│   │       ├── triage.css        # Triage three-panel layout styles
+│   │       ├── agent-hud.js      # Agent activity panel — SSE, resize, notifications
+│   │       ├── agent-hud.css     # Agent panel styles, color-coded status
+│   │       └── evidence.css      # Evidence window styles (stub)
 │   └── cli/
-│       ├── app.py                # Typer CLI (chat, sessions, tools, config, tui)
+│       ├── app.py                # Typer CLI (chat, sessions, tools, config, tui, web)
 │       ├── chat.py               # Interactive chat handler
 │       └── output.py             # Rich output formatting + session export
 ├── tests/                        # 198 tests
@@ -209,6 +237,8 @@ workbench-core/
 | `wb tools info NAME` | Show tool details and schema |
 | `wb config show` | Show effective configuration |
 | `wb config validate` | Validate config and show issues |
+| `wb web` | **Web UI** — Operations Center (FastAPI + SSE) |
+| `wb web --host 0.0.0.0 --port 8080` | Web UI bound to all interfaces |
 | `wb version` | Show version |
 
 ## TUI
@@ -297,6 +327,8 @@ pip install -e ".[dev]"         # pytest, ruff, coverage
 
 ## What's Next
 
+- **Evidence Window** -- Tool call inspection, audit trail, artifact viewer
+- **Agent System** -- Multi-agent orchestration with config, task queues, and monitoring
 - **VS Code Extension** -- `wb serve` + chat panel
 - **Adapter Pack** -- Separate repo with vendor backends (K8s, vendor APIs, ticketing) via entry points
 

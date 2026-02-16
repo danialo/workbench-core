@@ -47,6 +47,24 @@ The orchestrator loop: build context → call LLM → if tool calls, validate + 
 | `workbench/tui/windows/chat_window.py` | Chat window — streaming LLM responses + tool calls |
 | `workbench/cli/app.py` | Typer CLI — entry point for `wb` command |
 
+### Web UI Files
+
+| File | What It Does |
+|------|-------------|
+| `workbench/web/server.py` | FastAPI factory — SSE streaming, session/workspace mgmt, CSRF |
+| `workbench/web/middleware.py` | Auth, CSRF token validation, rate limiting |
+| `workbench/web/streaming.py` | SSE stream helpers for chat and agent output |
+| `workbench/web/routes/investigations.py` | Investigation CRUD, case fetch, integrations config |
+| `workbench/web/routes/agents.py` | Agent SSE stream and status endpoints |
+| `workbench/web/integrations.json.example` | Pluggable case source config (Glean, Jira, ServiceNow) |
+| `workbench/web/static/index.html` | Operations Center SPA — Inbox, Triage, Evidence tabs |
+| `workbench/web/static/app.js` | Core app class — routing, SSE chat, session mgmt, tool call cards |
+| `workbench/web/static/index.css` | Global styles, flexbox layout, tool call group styles |
+| `workbench/web/static/triage.js` | `TriageWindow` class — investigations, intake panel, search, embedded chat |
+| `workbench/web/static/triage.css` | Three-panel grid layout for triage |
+| `workbench/web/static/agent-hud.js` | `AgentHud` class — SSE stream, resize, color-coded status, notifications |
+| `workbench/web/static/agent-hud.css` | Inline agent panel styles |
+
 ## Conventions
 
 - **Python 3.12+**, async throughout. Use `asyncio` not threads.
@@ -62,12 +80,13 @@ The orchestrator loop: build context → call LLM → if tool calls, validate + 
 ## Running
 
 ```bash
-wb tui                    # Windowed TUI (recommended)
-wb chat                   # CLI chat
-wb tools list             # Show registered tools
-wb config show            # Show effective config
-wb config validate        # Check for config issues
-pytest tests/ -v          # Run all tests
+wb tui                              # Windowed TUI
+wb web --host 0.0.0.0 --port 8080  # Web UI (Operations Center)
+wb chat                             # CLI chat
+wb tools list                       # Show registered tools
+wb config show                      # Show effective config
+wb config validate                  # Check for config issues
+pytest tests/ -v                    # Run all tests
 ```
 
 ## Adding a New Tool
@@ -77,6 +96,18 @@ pytest tests/ -v          # Run all tests
 3. Implement `async execute(self, **kwargs) -> ToolResult`
 4. Register in the CLI/TUI startup code (see `workbench/cli/app.py` or `workbench/tui/app.py`)
 5. Add tests in `tests/`
+
+## Web UI Conventions
+
+- **Start with `wb web`**, not `uvicorn module:app` — uses factory pattern.
+- **Window system**: Tabs switch `.window` containers via `switchWindow(name)`. Each window (Inbox, Triage, Evidence) is a `<div>` toggled by display.
+- **Triage layout**: CSS grid — `280px 1fr` default, `280px 1fr 380px` with intake panel open.
+- **DOM reparenting**: Embedded chat uses `reparentChat(targetId)` / `returnChat()` to move `#conversationView` between windows without duplicating logic.
+- **Tool call groups**: Consecutive tool calls in a message are grouped into a collapsible summary bar.
+- **Agent status colors**: Green (`--status-connected`) = running, Yellow (`--accent-primary`) = waiting, Red (`--status-error`) = stopped/error, Gray (`--text-tertiary`) = completed.
+- **Integrations config**: User copies `integrations.json.example` to `~/.workbench/integrations.json`. Sources can be `"type": "agent"` (orchestrator-driven) or `"type": "api"` (direct HTTP).
+- **Route ordering matters**: Static path routes (`/integrations`, `/fetch-case`) must be registered before parameterized routes (`/{investigation_id}`) in FastAPI.
+- **CSRF protection**: All POST/PUT/DELETE require `X-CSRF-Token` header. Token fetched from `GET /api/csrf-token`.
 
 ## Gotchas
 

@@ -50,7 +50,8 @@
 - [ ] Add custom checklist items (input field in detail view)
 - [ ] Remove checklist items
 - [ ] Auto-select newly created investigation after submit
-- [ ] Seed chat context from fetched case data (pre-populate first message)
+- [ ] Frontload investigation context into chat — when conversation is linked to an investigation, inject title, severity, systems, description, and any fetched case data as system context so the LLM has full awareness
+- [ ] Seed first message from case data (pre-populate initial prompt with case summary)
 - [ ] Wire real API integrations (Jira, ServiceNow HTTP calls)
 - [ ] Investigation hierarchy — subdirectories for notes, evidence, questions, escalations
 - [ ] Bulk actions (multi-select, bulk resolve/escalate)
