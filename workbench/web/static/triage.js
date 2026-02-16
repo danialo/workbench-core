@@ -66,6 +66,12 @@ class TriageWindow {
             });
         }
 
+        // Search input
+        const search = document.getElementById('investigationSearch');
+        if (search) {
+            search.addEventListener('input', () => this.renderList());
+        }
+
         // Escape closes intake panel
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.intakePanelOpen) this.closeIntakePanel();
@@ -101,8 +107,24 @@ class TriageWindow {
             return;
         }
 
+        // Filter by search term
+        const searchEl = document.getElementById('investigationSearch');
+        const query = (searchEl ? searchEl.value : '').trim().toLowerCase();
+        const filtered = query
+            ? this.investigations.filter(inv => {
+                const systems = Array.isArray(inv.affected_systems) ? inv.affected_systems.join(' ') : '';
+                const haystack = `${inv.title} ${inv.description || ''} ${systems} ${inv.severity}`.toLowerCase();
+                return haystack.includes(query);
+            })
+            : this.investigations;
+
+        if (filtered.length === 0) {
+            container.innerHTML = `<div class="investigation-list__empty">No matches for "${this.app.escapeHtml(query)}"</div>`;
+            return;
+        }
+
         container.innerHTML = '';
-        for (const inv of this.investigations) {
+        for (const inv of filtered) {
             const card = document.createElement('div');
             card.className = `investigation-card investigation-card--${inv.severity}`;
             if (inv.investigation_id === this.activeInvestigationId) {

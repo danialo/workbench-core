@@ -754,7 +754,75 @@ class AgentManagerApp {
         return div;
     }
 
+    /**
+     * Get or create a collapsible tool-call group inside an assistant message.
+     * All tool calls for a single assistant turn are grouped together.
+     */
+    getToolCallGroup(parentEl) {
+        const body = parentEl.querySelector('.message__body') || parentEl;
+        let group = body.querySelector('.tool-call-group');
+        if (group) return group;
+
+        group = document.createElement('div');
+        group.className = 'tool-call-group';
+        group.dataset.total = '0';
+        group.dataset.completed = '0';
+
+        const summary = document.createElement('div');
+        summary.className = 'tool-call-group__summary';
+        summary.innerHTML = `
+            <span class="tool-call-group__icon">&#9881;</span>
+            <span class="tool-call-group__label">1 tool call</span>
+            <span class="tool-call-group__status tool-call-group__status--running">running</span>
+            <button class="tool-call-group__toggle" aria-label="Toggle tool calls">&#9656;</button>
+        `;
+
+        const items = document.createElement('div');
+        items.className = 'tool-call-group__items';
+        items.style.display = 'none';
+
+        summary.addEventListener('click', () => {
+            const isHidden = items.style.display === 'none';
+            items.style.display = isHidden ? 'block' : 'none';
+            summary.querySelector('.tool-call-group__toggle').innerHTML = isHidden ? '&#9662;' : '&#9656;';
+            group.classList.toggle('tool-call-group--expanded', isHidden);
+        });
+
+        group.appendChild(summary);
+        group.appendChild(items);
+        body.appendChild(group);
+        return group;
+    }
+
+    updateToolCallGroupSummary(group) {
+        const total = parseInt(group.dataset.total) || 0;
+        const completed = parseInt(group.dataset.completed) || 0;
+        const hasError = group.querySelector('.tool-call-card--error') !== null;
+
+        const label = group.querySelector('.tool-call-group__label');
+        const status = group.querySelector('.tool-call-group__status');
+
+        label.textContent = `${total} tool call${total !== 1 ? 's' : ''}`;
+
+        if (completed >= total) {
+            if (hasError) {
+                status.textContent = 'completed with errors';
+                status.className = 'tool-call-group__status tool-call-group__status--error';
+            } else {
+                status.textContent = 'all completed';
+                status.className = 'tool-call-group__status tool-call-group__status--success';
+            }
+        } else {
+            status.textContent = `${completed}/${total} completed`;
+            status.className = 'tool-call-group__status tool-call-group__status--running';
+        }
+    }
+
     renderToolCallCard(parentEl, toolCallId, name, args) {
+        const group = this.getToolCallGroup(parentEl);
+        group.dataset.total = (parseInt(group.dataset.total) || 0) + 1;
+        this.updateToolCallGroupSummary(group);
+
         const card = document.createElement('div');
         card.className = 'tool-call-card';
         card.id = `tool-call-${toolCallId}`;
@@ -778,7 +846,8 @@ class AgentManagerApp {
         details.appendChild(argsBlock);
 
         // Toggle details on click
-        header.querySelector('.tool-call-card__toggle').addEventListener('click', () => {
+        header.querySelector('.tool-call-card__toggle').addEventListener('click', (e) => {
+            e.stopPropagation();
             const isHidden = details.style.display === 'none';
             details.style.display = isHidden ? 'block' : 'none';
             header.querySelector('.tool-call-card__toggle').innerHTML = isHidden ? '&#9662;' : '&#9656;';
@@ -787,13 +856,7 @@ class AgentManagerApp {
         card.appendChild(header);
         card.appendChild(details);
 
-        // Insert into the assistant message body
-        const body = parentEl.querySelector('.message__body');
-        if (body) {
-            body.appendChild(card);
-        } else {
-            parentEl.appendChild(card);
-        }
+        group.querySelector('.tool-call-group__items').appendChild(card);
     }
 
     updateToolCallResult(toolCallId, content, success, error) {
@@ -828,6 +891,13 @@ class AgentManagerApp {
             resultBlock.appendChild(resultLabel);
             resultBlock.appendChild(resultContent);
             details.appendChild(resultBlock);
+        }
+
+        // Update group summary
+        const group = card.closest('.tool-call-group');
+        if (group) {
+            group.dataset.completed = (parseInt(group.dataset.completed) || 0) + 1;
+            this.updateToolCallGroupSummary(group);
         }
     }
 
@@ -918,6 +988,11 @@ class AgentManagerApp {
             if (wsId !== 'global') {
                 this.expandedWorkspaces.add(wsId);
             }
+        }
+
+        // Switch to inbox window if we're on a different tab
+        if (this.activeWindow !== 'inbox') {
+            this.switchWindow('inbox');
         }
 
         this.switchView('conversation');
@@ -1165,9 +1240,7 @@ class AgentManagerApp {
                         sEl.classList.add('sidebar__conversation-item--active');
                     }
 
-                    const title = session.last_message
-                        ? session.last_message.substring(0, 30) + (session.last_message.length > 30 ? '...' : '')
-                        : `Session ${session.session_id.substring(0, 8)}...`;
+                    const title = this.sessionLabel(session);
 
                     // Show a spinning indicator if streaming on this session
                     const isStreaming = this.isStreaming && session.session_id === this.currentSessionId;
@@ -1205,9 +1278,7 @@ class AgentManagerApp {
                 el.classList.add('sidebar__conversation-item--active');
             }
 
-            const title = session.last_message
-                ? session.last_message.substring(0, 30) + (session.last_message.length > 30 ? '...' : '')
-                : `Session ${session.session_id.substring(0, 8)}...`;
+            const title = this.sessionLabel(session);
 
             el.innerHTML = `<span class="sidebar__conversation-title">${this.escapeHtml(title)}</span>`;
 
@@ -1434,10 +1505,30 @@ class AgentManagerApp {
             tab.classList.toggle('window-tab--active', tab.dataset.window === windowName);
         });
 
-        // Activate window-specific logic
+        // Activate/deactivate window-specific logic
         if (windowName === 'triage') {
             this.triageWindow.activate();
+        } else {
+            this.triageWindow.deactivate();
         }
+    }
+
+    sessionLabel(session) {
+        // Use first user message as title
+        if (session.last_message) {
+            const msg = session.last_message.trim();
+            if (msg.length > 40) return msg.substring(0, 40) + '...';
+            return msg;
+        }
+        // Investigation sessions
+        if (session.metadata && session.metadata.investigation_id) {
+            return 'Investigation chat';
+        }
+        // Workspace name + relative time
+        const ws = session.metadata && session.metadata.workspace;
+        const age = this.formatDate(session.created_at);
+        if (ws && ws !== 'global') return `${ws} — ${age}`;
+        return `New conversation — ${age}`;
     }
 
     formatDate(dateStr) {

@@ -70,9 +70,36 @@
 
 /* Left: Investigation list */
 .triage-window__list {
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
     border-right: 1px solid var(--border-subtle);
     padding: 8px;
+}
+
+.triage-window__search {
+    flex-shrink: 0;
+    padding: 0 0 8px;
+}
+
+.triage-window__search-input {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color var(--transition-fast);
+}
+
+.triage-window__search-input:focus {
+    border-color: var(--accent-primary);
+}
+
+.triage-window__search-input::placeholder {
+    color: var(--text-tertiary);
 }
 
 /* Center: Detail or Chat */

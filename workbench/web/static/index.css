@@ -1620,6 +1620,99 @@ select {
    TOOL CALL CARDS
    ================================================================ */
 
+/* ---- Tool call group (collapsible summary) ---- */
+
+.tool-call-group {
+    margin: 8px 0;
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    background: var(--bg-input);
+    overflow: hidden;
+}
+
+.tool-call-group__summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--transition-fast);
+}
+
+.tool-call-group__summary:hover {
+    background: var(--bg-surface-hover);
+}
+
+.tool-call-group__icon {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.tool-call-group__label {
+    font-weight: 500;
+    color: var(--text-secondary);
+    flex: 1;
+}
+
+.tool-call-group__status {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.tool-call-group__status--running {
+    color: var(--accent-primary);
+    background: var(--accent-dim);
+}
+
+.tool-call-group__status--success {
+    color: var(--status-connected);
+    background: rgba(76, 175, 80, 0.1);
+}
+
+.tool-call-group__status--error {
+    color: var(--status-error);
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.tool-call-group__toggle {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: color var(--transition-fast);
+}
+
+.tool-call-group__summary:hover .tool-call-group__toggle {
+    color: var(--text-primary);
+}
+
+.tool-call-group__items {
+    border-top: 1px solid var(--border-subtle);
+}
+
+.tool-call-group__items .tool-call-card {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.tool-call-group__items .tool-call-card:last-child {
+    border-bottom: none;
+}
+
+/* ---- Individual tool call card ---- */
+
 .tool-call-card {
     margin: 8px 0;
     border: 1px solid var(--border-medium);
