@@ -49,6 +49,7 @@
         </div>
         <div class="top-bar__right">
             <button class="top-bar__action" id="btnOpenEditor">Open Editor</button>
+            <button class="top-bar__icon-btn" id="btnExpandAgentPanel" title="Agent Activity">⊞</button>
             <button class="top-bar__icon-btn" id="btnSettings" title="Settings">⚙</button>
         </div>
     </header>
@@ -65,13 +66,13 @@
         </button>
     </div>
 
-    <!-- AGENT HUD -->
-    <div class="agent-hud" id="agentHud">
-        <div class="agent-hud__label">Agents</div>
-        <div class="agent-hud__list" id="agentHudList">
-            <div class="agent-hud__empty">No active agents</div>
+    <!-- CONTEXT PILL BAR -->
+    <div class="context-bar" id="contextBar">
+        <div class="context-bar__label">Context</div>
+        <button class="context-bar__add-btn" id="btnAddContextPill" title="Add context">+</button>
+        <div class="context-bar__pills" id="contextBarPills">
+            <span class="context-bar__empty">No context pills</span>
         </div>
-        <button class="agent-hud__expand-btn" id="btnExpandAgentPanel" title="Expand agent panel">⊞</button>
     </div>
 
     <!-- WINDOW TAB BAR -->
@@ -489,6 +490,7 @@
     </div>
 
     <script src="/static/agent-hud.js"></script>
+    <script src="/static/context-bar.js"></script>
     <script src="/static/triage.js"></script>
     <script src="/static/app.js"></script>
 </body>

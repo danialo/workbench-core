@@ -25,7 +25,7 @@
 - [ ] Clicking inbox item opens the completed conversation
 - [ ] Delete/archive conversations
 - [ ] Playground: flag sessions as ephemeral, auto-cleanup, "Move to Workspace" action
-- [ ] Memory panel (per-workspace memory files, agent context)
+- [ ] **Memory panel** — UI for viewing/editing per-workspace memory entries (SQLite + file-based). Show agent-written notes, CLAUDE.md, README.md. Edit/delete entries inline. Backend is wired (`memory_read`/`memory_write` tools + `build_memory_context()` injection)
 - [ ] Workspace settings/config editor
 
 ## Triage Window
@@ -50,8 +50,9 @@
 - [ ] Add custom checklist items (input field in detail view)
 - [ ] Remove checklist items
 - [ ] Auto-select newly created investigation after submit
-- [ ] **Context editor panel** — editable panel showing what gets injected into the LLM as system context for this investigation. User can toggle fields on/off (title, severity, systems, description, case data), edit values before they're sent, add free-form context notes, and reorder priority. Gives full control over what the agent "knows" going in
-- [ ] Frontload investigation context into chat — when conversation is linked to an investigation, inject the context editor contents as system context so the LLM has full awareness
+- [x] **Context editor panel** — editable panel showing what gets injected into the LLM as system context for this investigation. User can toggle fields on/off (title, severity, systems, description, case data), edit values before they're sent, add free-form context notes, and reorder priority. Gives full control over what the agent "knows" going in
+- [x] Frontload investigation context into chat — when conversation is linked to an investigation, inject the context editor contents as system context so the LLM has full awareness
+- [ ] **Context pill menu** — right-click context menu on pills with options: Edit, Toggle, Remove, Move Up/Down (reorder priority), Copy Value. Replace browser prompt() for custom pill creation with inline form
 - [ ] Seed first message from case data (pre-populate initial prompt with case summary)
 - [ ] Wire real API integrations (Jira, ServiceNow HTTP calls)
 - [ ] Investigation hierarchy — subdirectories for notes, evidence, questions, escalations
@@ -63,17 +64,26 @@
 
 ### Done
 - [x] Tab and window shell (placeholder)
+- [x] Audit log writes to `~/.workbench/audit.jsonl` with rotation (backend exists)
 
 ### Remaining
+
+#### Evidence / Audit Trail API (core)
+- [ ] **Audit query API** — REST endpoints to search/filter audit.jsonl (by session, tool, time range, success/failure)
+- [ ] **Audit indexing** — SQLite index over audit entries for fast queries (audit.jsonl is append-only, index is derived)
+- [ ] **Evidence linking** — API to tag audit entries / tool results as evidence for an investigation
+- [ ] **Evidence CRUD** — create, read, update, delete evidence items with metadata (tags, notes, relevance)
+
+#### Evidence UI
 - [ ] Tool call inspection — browse all tool calls from a session
-- [ ] Audit trail — chronological log of actions taken
+- [ ] Audit trail — chronological log of actions taken, filterable timeline
 - [ ] Evidence tagging — mark tool results as relevant to an investigation
 - [ ] Link evidence to investigations (cross-reference triage)
 - [ ] Artifact viewer — formatted display of files, logs, screenshots
 - [ ] Export evidence bundle (zip or PDF)
 - [ ] Filter by session, agent, tool type, or time range
 
-## Agent Activity Panel
+## Agent Activity Panel → Agent Management
 
 ### Done
 - [x] Inline resizable panel (not overlay)
@@ -83,13 +93,98 @@
 - [x] Inbox notifications for agents waiting on user input
 
 ### Remaining
-- [ ] Agent registry/management system
-- [ ] "New Agent" creation flow
-- [ ] Agent config editor (prompt, skills, rules, context files)
+
+#### Agent Config & Persistence (core)
+- [ ] **Agent definition schema** — name, description, system prompt, recipes[], tools[], context files[], rules[], workspace scope
+- [ ] **Agent persistence** — SQLite storage for agent configs (CRUD). Agents are per-workspace unless created in Global
+- [ ] **Agent CRUD API** — REST endpoints for create/read/update/delete agent definitions
+- [ ] **Agent lifecycle** — start, stop, pause, resume. Track state transitions
+- [ ] **Agent session binding** — each agent run creates a session, history persisted across runs
+- [ ] **Agent memory** — per-agent memory namespace (scoped within workspace memory)
+
+#### Recipe System (core)
+
+Recipes are the execution model. Every interaction is recipe-driven:
+1. User sends a prompt
+2. System builds an **ephemeral recipe** — identifies tools, structures approach, refines prompt
+3. Orchestrator executes the recipe
+4. User can **"Save as Recipe"** to persist it → becomes discoverable and reusable
+5. Next similar request matches the persistent recipe instead of building from scratch
+
+- [ ] **Recipe definition schema** — `recipe.yaml`: name, description, trigger (prompt pattern or explicit invocation), prompt template, tools[] (required tools), parameters (user-configurable inputs), output format, version
+- [ ] **Ephemeral recipe construction** — orchestrator pre-step that builds a structured recipe from raw user input before execution. Always runs. This IS the prompt refinement layer
+- [ ] **Recipe executor** — takes a recipe (ephemeral or persistent) and runs it through the orchestrator with the specified tools and prompt template
+- [ ] **Recipe registry** — discover/list/match recipes in a workspace. Checks `.workbench/recipes/` for persistent recipes that match the user's intent before building ephemeral
+- [ ] **Recipe manifest / index** — workspace-level index of available recipes with descriptions, so the LLM can discover and select the right recipe for a task
+- [ ] **"Save as Recipe" action** — after any execution, offer to persist the ephemeral recipe. Writes `recipe.yaml` + `prompt.md` to `.workbench/recipes/<name>/`, updates index
+- [ ] **Recipe builder meta-recipe** — ships with every workspace. A persistent recipe whose prompt teaches the LLM the recipe schema, directory conventions, and how to create + deploy new recipes
+- [ ] **Recipe packaging** — recipes as self-contained units (prompt + tools + context) that can be shared, imported, exported
+
+#### Recipe UI & Remote Repository
+- [ ] **Recipe browser panel** — browse installed recipes per workspace. Card view with name, description, trigger, tool chain. Enable/disable per workspace
+- [ ] **Recipe detail view** — read-only view of recipe.yaml + prompt.md. "Edit in chat" button opens a conversation with recipe-builder to modify it
+- [ ] **"Save as Recipe" button** — appears after every agent response. Persists the ephemeral recipe that was just executed
+- [ ] **Remote recipe repository** — hosted registry (GitHub repo or custom API) for publishing and discovering community recipes
+- [ ] **Recipe install from remote** — `wb recipe install <name>` CLI + API endpoint. Downloads recipe directory into workspace `.workbench/recipes/`
+- [ ] **Recipe publish to remote** — `wb recipe publish <name>` packages and pushes a local recipe to the remote registry
+- [ ] **Recipe versioning** — semver in recipe.yaml, remote registry tracks versions, workspace can pin or auto-update
+- [ ] **Recipe search** — search remote repository by name, description, tags. API + UI integration
+- [ ] **Recipe ratings / usage stats** — track installs, stars, last updated. Surface popular recipes in browser
+
+#### Sub-agents (core)
+- [ ] **Sub-agent spawning** — an agent can spin off child agents for parallel or delegated work
+- [ ] **Sub-agent communication** — parent/child message passing, result collection, error propagation
+- [ ] **Sub-agent lifecycle** — auto-cleanup when parent completes, orphan detection
+- [ ] **Shared context** — parent can inject context into sub-agents, sub-agents can write back findings
+
+#### Agent Management UI
+- [ ] Agent list view — running agents, offline/disabled agents, agent configs
+- [ ] "New Agent" creation flow — wizard or form to define agent from scratch or from recipe template
+- [ ] Agent config editor (prompt, recipes, rules, context files)
 - [ ] Per-agent task queue and history
 - [ ] Stream agent reasoning/thinking
 - [ ] Agent memory/context viewer
-- [ ] Agent session persistence
+- [ ] Start/stop/pause controls per agent
+
+## Context Pill Bar
+
+### Done
+- [x] Replace agent HUD bar with context pill bar (workspace-scoped)
+- [x] Context pill CRUD API (SQLite `context_pills` table, per-workspace isolation)
+- [x] Custom pill type (label + value, field-level toggle)
+- [x] Timeline pill type (start/end dates, configurable date format)
+- [x] "+" dropdown menu with pill type selection
+- [x] Inline creation form/popover
+- [x] Click to toggle pill on/off, right-click for field-level toggles
+- [x] Auto-inject enabled pills into LLM system prompt as `## Workspace Context`
+- [x] Pills reload on workspace switch
+- [x] Agent panel button moved to top bar
+
+### Remaining
+
+#### Custom Pill Types (extensible schema)
+- [ ] **Pill type registry** — define new pill types with a schema: name, icon, fields[] (each with name, type, label, required). Stored as JSON config per workspace or global. The "+" menu auto-populates from the registry
+- [ ] **Built-in types**: Case (case_id, source, summary, severity), Jira (ticket_id, summary, priority, assignee, status), Host (hostname, IP, OS, role), Log Window (source, start_time, end_time, filter), Runbook (title, steps[], link)
+- [ ] **User-defined types** — UI form to create a new pill type: name it, define fields (text, date, select, multiline), set an icon. Saved to workspace config. Appears in "+" dropdown alongside built-ins
+- [ ] **Type templates** — pre-built type packs (e.g. "Incident Response" pack adds Case, Timeline, Host, Log Window types). Importable/exportable
+- [ ] **Field types** — support beyond text: date picker, dropdown/select, number, URL (auto-linkable), multiline/textarea, boolean toggle
+- [ ] **Integration-backed pills** — pill types that auto-populate fields from an integration source (e.g. "Jira" type fetches ticket data via integrations.json config, populates fields, user can then toggle individual fields on/off)
+
+#### Context Bar UI
+- [ ] **Context pill menu** — right-click context menu with: Edit, Toggle, Remove, Move Up/Down (reorder), Copy Value, Duplicate
+- [ ] **Drag-to-reorder** pills (update sort_order via PUT)
+- [ ] **Pill editing popover** — double-click or right-click Edit to open inline editor for all fields
+- [ ] **Pill groups** — visual grouping/separators (e.g. "Environment" group, "Incident" group)
+- [ ] **Pill color coding** — user-assignable colors or auto-color by type
+- [ ] **Pill search/filter** — when many pills exist, search or filter by type
+- [ ] **Pill import/export** — save a set of pills as a template, apply to other workspaces
+- [ ] **Pill limit warning** — warn when total context size approaches token limits
+
+#### Context Management
+- [ ] **Context budget** — track estimated token count of all enabled pills, show usage bar
+- [ ] **Context priority** — pills with higher sort_order get truncated last if context budget is exceeded
+- [ ] **Context snapshots** — save current pill state as a named snapshot, restore later
+- [ ] **Workspace defaults** — when creating a new workspace, optionally seed it with a set of default pills from a template
 
 ## Global / Cross-Window
 
@@ -107,6 +202,24 @@
 - [ ] Link documents to investigations, sessions, and agents
 - [ ] Versioning / revision history
 - [ ] Document viewer/editor in the UI
+
+### Workspace Scaffolding & Defaults
+- [ ] **Workspace scaffold on create** — when a new workspace is created, generate the default directory structure:
+  ```
+  .workbench/
+    config.yaml          # workspace-level config overrides
+    memory.md            # workspace memory (agent-writable)
+    recipes/             # persistent recipe definitions
+      recipe-builder/    # meta-recipe: teaches LLM to write recipes
+        recipe.yaml
+        prompt.md
+    agents/              # agent definitions
+    context/             # shared context files for this workspace
+  ```
+- [ ] **Default recipe: recipe-builder** — ships with every workspace. A meta-recipe whose prompt teaches the LLM the recipe schema, directory conventions, and how to create + deploy new recipes
+- [ ] **Default config template** — `config.yaml` with commented-out options (tools_enabled, tools_disabled, policy overrides, LLM overrides)
+- [ ] **Scaffold CLI command** — `wb workspace init [path]` to create structure in an existing directory
+- [ ] **Scaffold API** — POST `/api/workspaces` already creates the workspace record; extend to also create the directory structure if `path` is set
 
 ### Infrastructure
 - [ ] Reverse tunnel for remote access

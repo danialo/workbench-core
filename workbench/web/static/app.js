@@ -27,6 +27,7 @@ class AgentManagerApp {
 
         // Sub-modules (loaded from separate files)
         this.agentHud = new AgentHud(this);
+        this.contextBar = new ContextBar(this);
         this.triageWindow = new TriageWindow(this);
 
         // Track which workspaces are expanded/closed in sidebar
@@ -47,6 +48,7 @@ class AgentManagerApp {
         ]);
         this.render();
         this.agentHud.start();
+        await this.contextBar.init();
         this.triageWindow.bindEvents();
         this.initSidebarResize();
         // Default to inbox view on load
@@ -417,6 +419,11 @@ class AgentManagerApp {
         this.elAboutSection.style.display = '';
         this.switchView('conversation');
         this.render();
+
+        // Reload context pills for the new workspace
+        if (this.contextBar) {
+            this.contextBar.loadPills();
+        }
     }
 
     // ---- File Menu ----

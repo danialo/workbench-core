@@ -1,10 +1,9 @@
 /**
- * Agent HUD — persistent overlay showing all active agents across workspaces.
+ * Agent Activity — SSE stream for agent status updates.
  *
- * Connects to /api/agents/stream (SSE) for real-time updates.
- * Renders agent items with status dots and inline approve buttons.
- *
- * Also manages the inline resizable Agent Activity Panel.
+ * Connects to /api/agents/stream for real-time updates.
+ * Renders agent details in the inline Agent Activity Panel (right drawer).
+ * Also manages inbox waiting notifications.
  */
 
 class AgentHud {
@@ -75,67 +74,13 @@ class AgentHud {
             // Keep for 30s then remove
             setTimeout(() => {
                 delete this.agents[data.session_id];
-                this.render();
                 this.renderPanel();
                 this.renderInboxNotifications();
             }, 30000);
         }
 
-        this.render();
         this.renderPanel();
         this.renderInboxNotifications();
-    }
-
-    render() {
-        const list = document.getElementById('agentHudList');
-        if (!list) return;
-
-        const entries = Object.values(this.agents);
-        if (entries.length === 0) {
-            list.innerHTML = '<div class="agent-hud__empty">No active agents</div>';
-            return;
-        }
-
-        list.innerHTML = '';
-        for (const agent of entries) {
-            const item = document.createElement('div');
-            item.className = 'agent-hud__item';
-
-            const status = agent.pending_confirmation ? 'waiting' : (agent.status || 'running');
-            const statusClass = `agent-hud__dot--${status}`;
-            const action = agent.current_action || '';
-            const wsName = agent.workspace_name || 'Unknown';
-
-            let approveBtn = '';
-            if (agent.pending_confirmation) {
-                approveBtn = `<button class="agent-hud__approve-btn" data-session="${agent.session_id}" data-tcid="${agent.pending_confirmation.tool_call_id}">Approve</button>`;
-            }
-
-            item.innerHTML = `
-                <span class="agent-hud__dot ${statusClass}"></span>
-                <span class="agent-hud__name">${this.app.escapeHtml(wsName)}</span>
-                <span class="agent-hud__action">${this.app.escapeHtml(action)}</span>
-                ${approveBtn}
-            `;
-
-            // Click to jump to that session in Inbox
-            item.addEventListener('click', (e) => {
-                if (e.target.classList.contains('agent-hud__approve-btn')) return;
-                this.app.switchWindow('inbox');
-                this.app.selectSession(agent.session_id);
-            });
-
-            // Wire approve button
-            const btn = item.querySelector('.agent-hud__approve-btn');
-            if (btn) {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.approve(agent.session_id, agent.pending_confirmation.tool_call_id);
-                });
-            }
-
-            list.appendChild(item);
-        }
     }
 
     // ---- Agent Activity Panel (inline) ----

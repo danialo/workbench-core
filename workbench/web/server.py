@@ -196,6 +196,8 @@ def create_app(
     db_path = str(Path(config.session.history_db).expanduser()) if config else "~/.workbench/history.db"
     memory_provider = SQLiteMemoryProvider(db_path)
     file_memory_provider = FileMemoryProvider()
+    app.state.memory_provider = memory_provider
+    app.state.file_memory_provider = file_memory_provider
 
     # ---- Security middleware (order matters: outermost runs first) ----
     app.add_middleware(SecurityHeadersMiddleware)
@@ -231,6 +233,12 @@ def create_app(
     app.state.orchestrator_factory = orchestrator_factory
     app.state.confirmation_manager = confirmation_manager
 
+    # ---- Memory tools ----
+    if registry is not None:
+        from workbench.memory.tools import MemoryReadTool, MemoryWriteTool
+        registry.register(MemoryReadTool(memory_provider, GLOBAL_WORKSPACE_ID))
+        registry.register(MemoryWriteTool(memory_provider, GLOBAL_WORKSPACE_ID))
+
     # ---- Agent Registry ----
     agent_registry = AgentRegistry()
     app.state.agent_registry = agent_registry
@@ -241,6 +249,9 @@ def create_app(
     # ---- Include feature routers ----
     app.include_router(agents_router)
     app.include_router(investigations_router)
+
+    from workbench.web.routes.context import router as context_router, ensure_context_pills_table
+    app.include_router(context_router)
 
     # ---- Static files ----
     if _STATIC_DIR.exists():
@@ -725,7 +736,7 @@ def create_app(
             return {"tools": []}
 
         tools = []
-        for tool in reg.all_tools():
+        for tool in reg.list():
             tools.append(ToolInfo(
                 name=tool.name,
                 description=tool.description,
@@ -773,6 +784,15 @@ def create_app(
             context_prefix = await get_investigation_context_for_session(
                 app.state.investigations_db_path, session_id
             )
+
+        # Inject workspace context pills
+        if hasattr(app.state, "investigations_db_path"):
+            from workbench.web.routes.context import build_context_pills_prefix
+            pills_ctx = await build_context_pills_prefix(
+                app.state.investigations_db_path, ws_id
+            )
+            if pills_ctx:
+                context_prefix = pills_ctx + context_prefix
 
         cm = app.state.confirmation_manager
 

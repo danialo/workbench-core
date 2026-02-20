@@ -350,6 +350,321 @@ select {
 }
 
 /* ================================================================
+   CONTEXT PILL BAR — workspace-scoped context pills
+   ================================================================ */
+
+.context-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    min-height: 28px;
+    overflow: visible;
+    position: relative;
+}
+
+.context-bar::-webkit-scrollbar { height: 0; }
+
+.context-bar__label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.context-bar__pills {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.context-bar__empty {
+    font-size: 11px;
+    color: var(--text-muted, var(--text-tertiary));
+    font-style: italic;
+}
+
+/* ---- Context pills (shared design with triage) ---- */
+
+.context-bar .ctx-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 14px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    user-select: none;
+}
+
+.context-bar .ctx-pill--on {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-medium);
+}
+
+.context-bar .ctx-pill--on:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-surface-hover);
+}
+
+.context-bar .ctx-pill--off {
+    background: var(--bg-secondary);
+    color: var(--text-tertiary);
+    border: 1px solid var(--border-subtle);
+    opacity: 0.55;
+}
+
+.context-bar .ctx-pill--off:hover {
+    opacity: 0.75;
+}
+
+.context-bar .ctx-pill__label {
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.context-bar .ctx-pill__value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.8;
+}
+
+.context-bar .ctx-pill__type {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.5;
+    margin-right: 2px;
+}
+
+.context-bar .ctx-pill__remove {
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0.4;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0 2px;
+}
+
+.context-bar .ctx-pill__remove:hover {
+    opacity: 1;
+    color: var(--status-error, #e74c3c);
+}
+
+/* ---- Add button ---- */
+
+.context-bar__add-btn {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px dashed var(--border-medium);
+    background: transparent;
+    color: var(--text-tertiary);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.context-bar__add-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
+/* ---- Dropdown menu for pill type selection ---- */
+
+.context-bar__menu {
+    position: absolute;
+    top: 100%;
+    left: 52px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    padding: 4px 0;
+    z-index: 200;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    min-width: 140px;
+}
+
+.context-bar__menu-item {
+    display: block;
+    width: 100%;
+    padding: 7px 14px;
+    font-size: 12px;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.context-bar__menu-item:hover {
+    background: var(--bg-surface-hover);
+}
+
+.context-bar__menu-item__icon {
+    margin-right: 6px;
+    opacity: 0.6;
+}
+
+/* ---- Inline creation / edit popover ---- */
+
+.context-bar__popover {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 52px;
+    width: 300px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    padding: 14px;
+    z-index: 200;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.context-bar__popover-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+
+.context-bar__popover-field {
+    margin-bottom: 8px;
+}
+
+.context-bar__popover-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 3px;
+}
+
+.context-bar__popover-input {
+    width: 100%;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--text-primary);
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.context-bar__popover-input:focus {
+    border-color: var(--accent-primary);
+}
+
+.context-bar__popover-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.context-bar__popover-btn {
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.context-bar__popover-btn--save {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+}
+
+.context-bar__popover-btn--save:hover {
+    background: var(--accent-primary-hover);
+}
+
+.context-bar__popover-btn--cancel {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+}
+
+.context-bar__popover-btn--cancel:hover {
+    background: var(--bg-surface-hover);
+}
+
+/* ---- Field-level toggle popover (right-click) ---- */
+
+.context-bar__field-popover {
+    position: fixed;
+    width: 280px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    padding: 12px;
+    z-index: 300;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.context-bar__field-popover-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.context-bar__field-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+}
+
+.context-bar__field-row label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex: 1;
+}
+
+.context-bar__field-row input[type="checkbox"] {
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+}
+
+.context-bar__field-value {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ================================================================
    WINDOW CONTAINERS
    ================================================================ */
 

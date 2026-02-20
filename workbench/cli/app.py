@@ -141,6 +141,17 @@ async def _setup_stack(
     except Exception:
         _log.exception("Failed to register backend tools")
 
+    # Memory tools
+    try:
+        from workbench.memory.sqlite_provider import SQLiteMemoryProvider
+        from workbench.memory.tools import MemoryReadTool, MemoryWriteTool
+
+        memory_provider = SQLiteMemoryProvider(cfg.session.history_db)
+        registry.register(MemoryReadTool(memory_provider, "global"))
+        registry.register(MemoryWriteTool(memory_provider, "global"))
+    except Exception:
+        _log.exception("Failed to register memory tools")
+
     # Load plugins (after router so plugins can receive the backend)
     registry.load_plugins(
         enabled=cfg.plugins.enabled,
