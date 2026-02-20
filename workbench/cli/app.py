@@ -29,9 +29,12 @@ sessions_app = typer.Typer(help="Session management")
 tools_app = typer.Typer(help="Tool management")
 config_app = typer.Typer(help="Configuration management")
 
+recipes_app = typer.Typer(help="Recipe management")
+
 app.add_typer(sessions_app, name="sessions")
 app.add_typer(tools_app, name="tools")
 app.add_typer(config_app, name="config")
+app.add_typer(recipes_app, name="recipes")
 
 console = Console()
 
@@ -587,6 +590,131 @@ def web(
 
     fast_app = asyncio.run(_setup_web())
     uvicorn.run(fast_app, host=host, port=port, log_level="info")
+
+
+@recipes_app.command("list")
+def recipes_list(
+    workspace: Optional[str] = typer.Option(None, help="Workspace path to scan for recipes"),
+    tag: Optional[str] = typer.Option(None, help="Filter by tag"),
+):
+    """List available recipes."""
+    from workbench.recipes.registry import RecipeRegistry
+
+    reg = RecipeRegistry()
+    reg.discover_global()
+    if workspace:
+        reg.discover(workspace)
+
+    recipes = reg.list(tag=tag)
+    if not recipes:
+        console.print("[dim]No recipes found.[/dim]")
+        return
+
+    for r in recipes:
+        tags_str = f" [dim][{', '.join(r.tags)}][/dim]" if r.tags else ""
+        console.print(f"  [bold]{r.name}[/bold] v{r.version}{tags_str}")
+        if r.description:
+            console.print(f"    {r.description}")
+        if r.parameters:
+            param_names = [p.name for p in r.parameters]
+            console.print(f"    [dim]params: {', '.join(param_names)}[/dim]")
+
+
+@recipes_app.command("show")
+def recipes_show(
+    name: str = typer.Argument(..., help="Recipe name"),
+    workspace: Optional[str] = typer.Option(None, help="Workspace path"),
+):
+    """Show recipe details."""
+    from workbench.recipes.registry import RecipeRegistry
+
+    reg = RecipeRegistry()
+    reg.discover_global()
+    if workspace:
+        reg.discover(workspace)
+
+    recipe = reg.get(name)
+    if recipe is None:
+        console.print(f"[red]Recipe not found:[/red] {name}")
+        raise typer.Exit(1)
+
+    console.print(f"\n[bold]{recipe.name}[/bold] v{recipe.version}")
+    if recipe.description:
+        console.print(f"  {recipe.description}")
+    if recipe.tags:
+        console.print(f"  Tags: {', '.join(recipe.tags)}")
+    if recipe.tools:
+        console.print(f"  Tools: {', '.join(recipe.tools)}")
+    if recipe.parameters:
+        console.print("\n  Parameters:")
+        for p in recipe.parameters:
+            req = "required" if p.required else f"default={p.default}"
+            console.print(f"    [bold]{p.name}[/bold] ({p.type}, {req})")
+            if p.description:
+                console.print(f"      {p.description}")
+    if recipe.trigger:
+        console.print(f"\n  Triggers: {recipe.trigger}")
+    if recipe.source_path:
+        console.print(f"\n  [dim]Source: {recipe.source_path}[/dim]")
+    console.print()
+
+
+@recipes_app.command("run")
+def recipes_run(
+    name: str = typer.Argument(..., help="Recipe name"),
+    param: list[str] = typer.Option([], "--param", "-p", help="Parameters as key=value"),
+    workspace: Optional[str] = typer.Option(None, help="Workspace path"),
+    provider: Optional[str] = typer.Option(None, help="LLM provider"),
+    profile: Optional[str] = typer.Option(None, help="Config profile"),
+):
+    """Run a recipe with parameters."""
+    params = {}
+    for p in param:
+        if "=" not in p:
+            console.print(f"[red]Invalid param format:[/red] {p} (expected key=value)")
+            raise typer.Exit(1)
+        k, v = p.split("=", 1)
+        params[k.strip()] = v.strip()
+
+    async def _run():
+        from workbench.recipes.executor import (
+            RecipeError,
+            build_recipe_context,
+            render_template,
+            validate_parameters,
+        )
+        from workbench.recipes.registry import RecipeRegistry
+
+        reg = RecipeRegistry()
+        reg.discover_global()
+        if workspace:
+            reg.discover(workspace)
+
+        recipe = reg.get(name)
+        if recipe is None:
+            console.print(f"[red]Recipe not found:[/red] {name}")
+            return
+
+        handler, store = await _setup_stack(provider, profile)
+        try:
+            validated = validate_parameters(recipe, params)
+            rendered = render_template(recipe.prompt_template, validated)
+            context_prefix = build_recipe_context(recipe, rendered)
+
+            handler.orchestrator.system_prompt = (
+                context_prefix + handler.orchestrator.system_prompt
+            )
+
+            async for chunk in handler.orchestrator.run(rendered):
+                if chunk.delta:
+                    console.print(chunk.delta, end="")
+            console.print()
+        except RecipeError as e:
+            console.print(f"[red]Recipe error:[/red] {e}")
+        finally:
+            await store.close()
+
+    asyncio.run(_run())
 
 
 @app.command()

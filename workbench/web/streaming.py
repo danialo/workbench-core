@@ -51,6 +51,7 @@ class OrchestratorFactory:
         confirmation_callback=None,
         allowed_patterns: list[str] | None = None,
         context_prefix: str = "",
+        registry: ToolRegistry | None = None,
     ) -> Orchestrator:
         """Create an Orchestrator wired to an existing session.
 
@@ -63,6 +64,9 @@ class OrchestratorFactory:
         context_prefix : str
             If provided, prepended to the system prompt for this
             orchestrator instance (e.g. investigation context).
+        registry : ToolRegistry | None
+            If provided, overrides the shared registry (e.g. for
+            recipe-filtered tool sets).
         """
         session = Session(
             store=self.session_store,
@@ -89,9 +93,11 @@ class OrchestratorFactory:
 
         effective_prompt = (context_prefix + self.system_prompt) if context_prefix else self.system_prompt
 
+        effective_registry = registry or self.registry
+
         return Orchestrator(
             session=session,
-            registry=self.registry,
+            registry=effective_registry,
             router=self.router,
             policy=policy,
             system_prompt=effective_prompt,

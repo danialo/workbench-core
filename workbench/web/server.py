@@ -253,6 +253,15 @@ def create_app(
     from workbench.web.routes.context import router as context_router, ensure_context_pills_table
     app.include_router(context_router)
 
+    from workbench.web.routes.recipes import router as recipes_router
+    app.include_router(recipes_router)
+
+    # ---- Recipe Registry ----
+    from workbench.recipes.registry import RecipeRegistry
+    recipe_registry = RecipeRegistry()
+    recipe_registry.discover_global()
+    app.state.recipe_registry = recipe_registry
+
     # ---- Static files ----
     if _STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
