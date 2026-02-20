@@ -307,16 +307,6 @@
                                 <div class="investigation-detail" id="investigationDetail"></div>
                             </div>
 
-                            <!-- Chat view (conversation reparented here) -->
-                            <div class="triage-chat-view" id="triageChatView" style="display:none">
-                                <div class="triage-chat-view__header">
-                                    <button class="triage-chat-view__back-btn" id="btnTriageBackToDetail">← Details</button>
-                                    <span class="triage-chat-view__title" id="triageChatTitle">Investigation</span>
-                                </div>
-                                <div class="triage-chat-view__container" id="triageChatContainer">
-                                    <!-- #conversationView gets reparented here when in chat mode -->
-                                </div>
-                            </div>
                         </div>
 
                         <!-- RIGHT: Intake panel (hidden by default) -->
@@ -363,6 +353,17 @@
                             <div class="intake-panel__footer">
                                 <button class="intake-panel__cancel-btn" id="btnCancelIntake">Cancel</button>
                                 <button class="intake-panel__submit-btn" id="btnSubmitIntake">Create Investigation</button>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT: Chat panel (hidden by default, replaces intake slot) -->
+                        <div class="triage-chat-panel" id="triageChatPanel" style="display:none">
+                            <div class="triage-chat-panel__header">
+                                <span class="triage-chat-panel__title" id="triageChatTitle">Investigation Chat</span>
+                                <button class="triage-chat-panel__close-btn" id="btnCloseTriageChat" title="Close chat">&times;</button>
+                            </div>
+                            <div class="triage-chat-panel__container" id="triageChatContainer">
+                                <!-- #conversationView gets reparented here -->
                             </div>
                         </div>
                     </div>

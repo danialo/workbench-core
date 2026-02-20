@@ -50,6 +50,7 @@ class OrchestratorFactory:
         session_id: str,
         confirmation_callback=None,
         allowed_patterns: list[str] | None = None,
+        context_prefix: str = "",
     ) -> Orchestrator:
         """Create an Orchestrator wired to an existing session.
 
@@ -59,6 +60,9 @@ class OrchestratorFactory:
             If provided, creates a scoped PolicyEngine copy with these
             patterns instead of using the shared policy's patterns.
             This keeps concurrent streams isolated.
+        context_prefix : str
+            If provided, prepended to the system prompt for this
+            orchestrator instance (e.g. investigation context).
         """
         session = Session(
             store=self.session_store,
@@ -83,12 +87,14 @@ class OrchestratorFactory:
                 audit_keep_files=self.policy.audit_keep_files,
             )
 
+        effective_prompt = (context_prefix + self.system_prompt) if context_prefix else self.system_prompt
+
         return Orchestrator(
             session=session,
             registry=self.registry,
             router=self.router,
             policy=policy,
-            system_prompt=self.system_prompt,
+            system_prompt=effective_prompt,
             tool_timeout=self.tool_timeout,
             max_turns=self.max_turns,
             confirmation_callback=confirmation_callback,

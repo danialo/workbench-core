@@ -766,6 +766,14 @@ def create_app(
                 pass
         effective_patterns = await _resolve_effective_allowlist(ws_id)
 
+        # Look up investigation context if this session is linked to one
+        context_prefix = ""
+        if hasattr(app.state, "investigations_db_path"):
+            from workbench.web.routes.investigations import get_investigation_context_for_session
+            context_prefix = await get_investigation_context_for_session(
+                app.state.investigations_db_path, session_id
+            )
+
         cm = app.state.confirmation_manager
 
         async def confirmation_callback(tool_name: str, tool_call: Any) -> bool:
@@ -780,6 +788,7 @@ def create_app(
             session_id=session_id,
             confirmation_callback=confirmation_callback,
             allowed_patterns=effective_patterns,
+            context_prefix=context_prefix,
         )
 
         from workbench.web.streaming import sse_generator

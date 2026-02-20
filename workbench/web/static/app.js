@@ -1035,12 +1035,13 @@ class AgentManagerApp {
             }
         }
 
-        // Switch to inbox window if we're on a different tab
-        if (this.activeWindow !== 'inbox') {
-            this.switchWindow('inbox');
+        // Switch to inbox window — unless chat is reparented (e.g. triage embed)
+        if (!this._chatOriginalParent) {
+            if (this.activeWindow !== 'inbox') {
+                this.switchWindow('inbox');
+            }
+            this.switchView('conversation');
         }
-
-        this.switchView('conversation');
         this.elAboutSection.style.display = 'none';
         this.elMessages.innerHTML = '';
 
@@ -1590,6 +1591,11 @@ class AgentManagerApp {
             this.triageWindow.activate();
         } else {
             this.triageWindow.deactivate();
+        }
+
+        // Reset inbox to list view when switching to it
+        if (windowName === 'inbox') {
+            this.switchView('inbox');
         }
     }
 

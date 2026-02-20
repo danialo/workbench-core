@@ -114,6 +114,77 @@ def _parse_json_fields(row: dict) -> dict:
     return row
 
 
+def build_investigation_context(investigation: dict) -> str:
+    """Build a system prompt prefix from an investigation's context editor state.
+
+    Returns an empty string if no context is configured.
+    """
+    meta = investigation.get("metadata") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except (json.JSONDecodeError, TypeError):
+            return ""
+
+    ctx = meta.get("context")
+    if not ctx or not isinstance(ctx, dict):
+        return ""
+
+    fields = ctx.get("fields", {})
+    labels = {
+        "title": "Title",
+        "severity": "Severity",
+        "systems": "Affected Systems",
+        "description": "Description",
+        "case_data": "Case Data",
+    }
+
+    parts = []
+    for key, label in labels.items():
+        field = fields.get(key, {})
+        if field.get("enabled") and field.get("value", "").strip():
+            parts.append(f"{label}: {field['value'].strip()}")
+
+    # Custom context pills
+    for custom in ctx.get("custom", []):
+        if isinstance(custom, dict) and custom.get("enabled", True):
+            val = custom.get("value", "").strip()
+            label = custom.get("label", "Note").strip()
+            if val:
+                parts.append(f"{label}: {val}")
+
+    notes = ctx.get("notes", "").strip()
+    if notes:
+        parts.append(f"Notes: {notes}")
+
+    if not parts:
+        return ""
+
+    return "## Investigation Context\n\n" + "\n".join(parts) + "\n\n"
+
+
+async def get_investigation_context_for_session(
+    db_path: str, session_id: str
+) -> str:
+    """Look up the investigation linked to a session and return its context prompt."""
+    resolved = str(Path(db_path).expanduser())
+    try:
+        async with aiosqlite.connect(resolved) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM investigations WHERE session_id = ? LIMIT 1",
+                (session_id,),
+            )
+            row = cursor and await cursor.fetchone()
+            if not row:
+                return ""
+            inv = _parse_json_fields(dict(row))
+            return build_investigation_context(inv)
+    except Exception:
+        logger.debug("Could not fetch investigation context for session %s", session_id, exc_info=True)
+        return ""
+
+
 # -----------------------------------------------------------------------
 # Endpoints
 # -----------------------------------------------------------------------
