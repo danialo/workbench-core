@@ -459,6 +459,120 @@
     color: var(--status-error);
 }
 
+/* Context menu (right-click on pill) */
+.ctx-menu {
+    position: fixed;
+    z-index: 300;
+    min-width: 160px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    padding: 4px 0;
+    animation: ctxMenuFadeIn 0.1s ease;
+}
+
+@keyframes ctxMenuFadeIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.ctx-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.1s ease;
+    white-space: nowrap;
+}
+
+.ctx-menu__item:hover {
+    background: var(--bg-surface-hover);
+}
+
+.ctx-menu__item--danger {
+    color: var(--status-error);
+}
+
+.ctx-menu__item--danger:hover {
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.ctx-menu__item--disabled {
+    color: var(--text-tertiary);
+    cursor: default;
+    pointer-events: none;
+}
+
+.ctx-menu__icon {
+    width: 16px;
+    text-align: center;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.ctx-menu__sep {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 4px 0;
+}
+
+/* Inline form for adding custom pill (replaces prompt()) */
+.ctx-inline-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    animation: ctxMenuFadeIn 0.15s ease;
+}
+
+.ctx-inline-form__input {
+    padding: 3px 8px;
+    font-size: 11px;
+    font-family: inherit;
+    background: var(--bg-input);
+    border: 1px solid var(--border-focus);
+    border-radius: 10px;
+    color: var(--text-primary);
+    outline: none;
+    width: 90px;
+}
+
+.ctx-inline-form__input--value {
+    width: 120px;
+}
+
+.ctx-inline-form__btn {
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 10px;
+    cursor: pointer;
+    border: none;
+    line-height: 1.2;
+}
+
+.ctx-inline-form__btn--save {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+}
+
+.ctx-inline-form__btn--save:hover {
+    background: var(--accent-primary-hover);
+}
+
+.ctx-inline-form__btn--cancel {
+    background: var(--bg-secondary);
+    color: var(--text-tertiary);
+    border: 1px solid var(--border-subtle);
+}
+
+.ctx-inline-form__btn--cancel:hover {
+    color: var(--text-primary);
+}
+
 /* Popover (quick edit on right-click) */
 .ctx-popover {
     position: absolute;
