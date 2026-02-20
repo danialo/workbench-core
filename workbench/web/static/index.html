@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/agent-hud.css">
     <link rel="stylesheet" href="/static/triage.css">
     <link rel="stylesheet" href="/static/evidence.css">
+    <link rel="stylesheet" href="/static/recipes.css">
 </head>
 
 <body>
@@ -85,6 +86,9 @@
         </button>
         <button class="window-tab" data-window="evidence" id="tabEvidence">
             Evidence
+        </button>
+        <button class="window-tab" data-window="recipes" id="tabRecipes">
+            Recipes
         </button>
     </div>
 
@@ -380,6 +384,38 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Window: Recipes -->
+            <div class="window" id="windowRecipes" data-window="recipes" style="display:none">
+                <div class="recipe-window">
+                    <div class="recipe-window__header">
+                        <h1 class="recipe-window__title">Recipes</h1>
+                        <div class="recipe-window__actions">
+                            <button class="recipe-window__new-btn" id="btnNewRecipe">+ New Recipe</button>
+                            <select class="recipe-window__filter" id="recipeTagFilter">
+                                <option value="">All Tags</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="recipe-window__body" id="recipeBody">
+                        <div class="recipe-window__list">
+                            <div class="recipe-window__search">
+                                <input type="text" class="recipe-window__search-input" id="recipeSearch" placeholder="Search recipes...">
+                            </div>
+                            <div class="recipe-list" id="recipeList">
+                                <div class="recipe-list__empty">No recipes found. Add recipes to ~/.workbench/recipes/</div>
+                            </div>
+                        </div>
+                        <div class="recipe-window__detail" id="recipeDetail">
+                            <div class="recipe-empty-state" id="recipeEmptyState">
+                                <div class="recipe-empty-state__icon">&#x1F4CB;</div>
+                                <p>Select a recipe to view details and run it.</p>
+                            </div>
+                            <div class="recipe-detail-view" id="recipeDetailView" style="display:none"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
 
         <!-- AGENT ACTIVITY PANEL (inline resizable) -->
@@ -492,6 +528,7 @@
     <script src="/static/agent-hud.js"></script>
     <script src="/static/context-bar.js"></script>
     <script src="/static/triage.js"></script>
+    <script src="/static/recipes.js"></script>
     <script src="/static/app.js"></script>
 </body>
 

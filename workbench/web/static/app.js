@@ -29,6 +29,7 @@ class AgentManagerApp {
         this.agentHud = new AgentHud(this);
         this.contextBar = new ContextBar(this);
         this.triageWindow = new TriageWindow(this);
+        this.recipeWindow = new RecipeWindow(this);
 
         // Track which workspaces are expanded/closed in sidebar
         this.expandedWorkspaces = new Set();
@@ -50,6 +51,7 @@ class AgentManagerApp {
         this.agentHud.start();
         await this.contextBar.init();
         this.triageWindow.bindEvents();
+        this.recipeWindow.bindEvents();
         this.initSidebarResize();
         // Default to inbox view on load
         this.switchView('inbox');
@@ -666,6 +668,9 @@ class AgentManagerApp {
         const content = this.elMessageInput.value.trim();
         if (!content || !this.currentSessionId) return;
 
+        // Track the user message for promote-to-recipe
+        this._lastUserMessage = content;
+
         // Clear input and show user message
         this.elMessageInput.value = '';
         this.elMessageInput.style.height = 'auto';
@@ -779,6 +784,18 @@ class AgentManagerApp {
                 // Streaming complete — do full markdown render on final text
                 if (contentEl._rawText) {
                     contentEl.innerHTML = this.renderMarkdownLite(contentEl._rawText);
+                }
+                // Inject "Save as Recipe" if tool calls were made
+                const toolGroup = assistantDiv.querySelector('.tool-call-group');
+                if (toolGroup) {
+                    const saveBtn = document.createElement('button');
+                    saveBtn.className = 'btn-save-recipe';
+                    saveBtn.textContent = 'Save as Recipe';
+                    saveBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.promoteToRecipe(assistantDiv);
+                    });
+                    toolGroup.querySelector('.tool-call-group__summary').appendChild(saveBtn);
                 }
                 break;
         }
@@ -1599,11 +1616,37 @@ class AgentManagerApp {
         } else {
             this.triageWindow.deactivate();
         }
+        if (windowName === 'recipes') {
+            this.recipeWindow.activate();
+        } else {
+            this.recipeWindow.deactivate();
+        }
 
         // Reset inbox to list view when switching to it
         if (windowName === 'inbox') {
             this.switchView('inbox');
         }
+    }
+
+    promoteToRecipe(assistantDiv) {
+        // Collect tool names from tool call cards
+        const tools = new Set();
+        assistantDiv.querySelectorAll('.tool-call-card__name').forEach(el => {
+            tools.add(el.textContent.trim());
+        });
+
+        // Get description from assistant text
+        const contentEl = assistantDiv.querySelector('.message__content');
+        const description = (contentEl?._rawText || contentEl?.textContent || '').slice(0, 120).trim();
+
+        const prefill = {
+            prompt_template: this._lastUserMessage || '',
+            tools: [...tools],
+            description,
+        };
+
+        this.switchWindow('recipes');
+        this.recipeWindow.showCreateForm(prefill);
     }
 
     sessionLabel(session) {
