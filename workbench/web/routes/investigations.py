@@ -351,21 +351,16 @@ async def fetch_case_data(req: FetchCaseRequest, request: Request):
             )
             continue
 
-    # No enabled sources or all failed — return mock data
-    mock = {
-        "title": f"Case {case_id}",
-        "severity": "medium",
-        "affected_systems": [],
-        "description": (
-            "No integration sources are configured or enabled. "
+    # No enabled sources or all failed — return unfetched marker
+    return JSONResponse({
+        "case_id": case_id,
+        "unfetched": True,
+        "message": (
+            "No integration sources are configured. "
             "Copy integrations.json.example to ~/.workbench/integrations.json "
             "and enable a source."
         ),
-        "source": "mock",
-        "case_id": case_id,
-    }
-    _save_case_to_tmp(case_id, mock, "mock")
-    return JSONResponse(mock)
+    })
 
 
 # -----------------------------------------------------------------------

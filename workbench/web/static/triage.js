@@ -17,7 +17,6 @@ class TriageWindow {
         this.activeInvestigationId = null;
         this.activeInvestigation = null;
         this.centerView = 'empty'; // 'empty' | 'detail'
-        this.intakePanelOpen = false;
         this.chatPanelOpen = false;
     }
 
@@ -33,36 +32,12 @@ class TriageWindow {
     }
 
     bindEvents() {
-        const btnNew = document.getElementById('btnNewInvestigation');
-        if (btnNew) btnNew.addEventListener('click', () => this.openIntakePanel());
-
         const filter = document.getElementById('investigationFilter');
         if (filter) filter.addEventListener('change', () => this.fetchInvestigations());
-
-        // Intake panel controls
-        const btnClose = document.getElementById('btnCloseIntake');
-        if (btnClose) btnClose.addEventListener('click', () => this.closeIntakePanel());
-
-        const btnCancel = document.getElementById('btnCancelIntake');
-        if (btnCancel) btnCancel.addEventListener('click', () => this.closeIntakePanel());
-
-        const btnFetch = document.getElementById('btnFetchCase');
-        if (btnFetch) btnFetch.addEventListener('click', () => this.fetchCaseData());
-
-        const btnSubmit = document.getElementById('btnSubmitIntake');
-        if (btnSubmit) btnSubmit.addEventListener('click', () => this.submitInvestigation());
 
         // Chat panel close
         const btnCloseChat = document.getElementById('btnCloseTriageChat');
         if (btnCloseChat) btnCloseChat.addEventListener('click', () => this.closeChatPanel());
-
-        // Enter key on case ID input triggers fetch
-        const caseInput = document.getElementById('intakeCaseId');
-        if (caseInput) {
-            caseInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') this.fetchCaseData();
-            });
-        }
 
         // Search input
         const search = document.getElementById('investigationSearch');
@@ -73,8 +48,7 @@ class TriageWindow {
         // Escape closes open panels
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                if (this.intakePanelOpen) this.closeIntakePanel();
-                else if (this.chatPanelOpen) this.closeChatPanel();
+                if (this.chatPanelOpen) this.closeChatPanel();
             }
         });
     }
@@ -104,7 +78,7 @@ class TriageWindow {
         if (!container) return;
 
         if (this.investigations.length === 0) {
-            container.innerHTML = '<div class="investigation-list__empty">No investigations. Click "+ New Investigation" to create one.</div>';
+            container.innerHTML = '<div class="investigation-list__empty">No investigations. Add a Case or Jira pill from the context bar.</div>';
             return;
         }
 
@@ -275,9 +249,6 @@ class TriageWindow {
     // ---- Embedded chat (right panel) ----
 
     async showChatView(sessionId, investigationTitle) {
-        // Close intake panel if open (they share the right slot)
-        if (this.intakePanelOpen) this.closeIntakePanel();
-
         const panel = document.getElementById('triageChatPanel');
         const body = document.getElementById('triageBody');
         const titleEl = document.getElementById('triageChatTitle');
@@ -331,107 +302,6 @@ class TriageWindow {
             await this.showChatView(session.session_id, investigation.title);
         } catch (e) {
             console.error('Failed to start investigation chat:', e);
-        }
-    }
-
-    // ---- Intake panel ----
-
-    openIntakePanel() {
-        // Close chat panel if open (they share the right slot)
-        if (this.chatPanelOpen) this.closeChatPanel();
-
-        this.intakePanelOpen = true;
-        const panel = document.getElementById('triageIntakePanel');
-        const body = document.getElementById('triageBody');
-        if (panel) panel.style.display = 'flex';
-        if (body) body.classList.add('triage-window__body--intake-open');
-
-        // Clear form
-        ['intakeCaseId', 'intakeTitle', 'intakeSystems', 'intakeDescription'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
-        });
-        const sev = document.getElementById('intakeSeverity');
-        if (sev) sev.value = 'medium';
-        const status = document.getElementById('intakeFetchStatus');
-        if (status) status.innerHTML = '';
-
-        // Focus case ID
-        setTimeout(() => {
-            const el = document.getElementById('intakeCaseId');
-            if (el) el.focus();
-        }, 100);
-    }
-
-    closeIntakePanel() {
-        this.intakePanelOpen = false;
-        const panel = document.getElementById('triageIntakePanel');
-        const body = document.getElementById('triageBody');
-        if (panel) panel.style.display = 'none';
-        if (body) body.classList.remove('triage-window__body--intake-open');
-    }
-
-    async fetchCaseData() {
-        const caseId = document.getElementById('intakeCaseId')?.value.trim();
-        if (!caseId) return;
-
-        const btn = document.getElementById('btnFetchCase');
-        const status = document.getElementById('intakeFetchStatus');
-
-        if (btn) { btn.textContent = 'Fetching...'; btn.disabled = true; }
-        if (status) status.innerHTML = '<span class="intake-panel__fetch-loading">Querying sources...</span>';
-
-        try {
-            const data = await this.app.apiFetch('/api/investigations/fetch-case', {
-                method: 'POST',
-                body: JSON.stringify({ case_id: caseId }),
-            });
-
-            // Populate form fields
-            const titleEl = document.getElementById('intakeTitle');
-            const sevEl = document.getElementById('intakeSeverity');
-            const sysEl = document.getElementById('intakeSystems');
-            const descEl = document.getElementById('intakeDescription');
-
-            if (titleEl && data.title) titleEl.value = data.title;
-            if (sevEl && data.severity) sevEl.value = data.severity;
-            if (sysEl && data.affected_systems) sysEl.value = (data.affected_systems || []).join(', ');
-            if (descEl && data.description) descEl.value = data.description;
-
-            const source = data.source || data._source || 'unknown';
-            if (status) status.innerHTML = `<span class="intake-panel__fetch-success">Populated from ${this.app.escapeHtml(source)}</span>`;
-
-        } catch (e) {
-            if (status) status.innerHTML = `<span class="intake-panel__fetch-error">Failed: ${this.app.escapeHtml(e.message)}</span>`;
-        } finally {
-            if (btn) { btn.textContent = 'Fetch'; btn.disabled = false; }
-        }
-    }
-
-    async submitInvestigation() {
-        const title = document.getElementById('intakeTitle')?.value.trim();
-        if (!title) {
-            document.getElementById('intakeTitle')?.focus();
-            return;
-        }
-
-        const severity = document.getElementById('intakeSeverity')?.value || 'medium';
-        const systems = (document.getElementById('intakeSystems')?.value || '')
-            .split(',').map(s => s.trim()).filter(Boolean);
-        const description = document.getElementById('intakeDescription')?.value.trim() || '';
-
-        try {
-            await this.app.apiFetch('/api/investigations', {
-                method: 'POST',
-                body: JSON.stringify({
-                    title, severity, affected_systems: systems, description,
-                    workspace_id: this.app.activeWorkspaceId,
-                }),
-            });
-            this.closeIntakePanel();
-            this.fetchInvestigations();
-        } catch (e) {
-            console.error('Failed to create investigation:', e);
         }
     }
 

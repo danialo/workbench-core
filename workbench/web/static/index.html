@@ -278,7 +278,6 @@
                     <div class="triage-window__header">
                         <h1 class="triage-window__title">Triage</h1>
                         <div class="triage-window__actions">
-                            <button class="triage-window__new-btn" id="btnNewInvestigation">+ New Investigation</button>
                             <select class="triage-window__filter" id="investigationFilter">
                                 <option value="open">Open</option>
                                 <option value="investigating">Investigating</option>
@@ -295,7 +294,7 @@
                                 <input type="text" class="triage-window__search-input" id="investigationSearch" placeholder="Search title, account, system...">
                             </div>
                             <div class="investigation-list" id="investigationList">
-                                <div class="investigation-list__empty">No investigations. Click "+ New Investigation" to create one.</div>
+                                <div class="investigation-list__empty">No investigations. Add a Case or Jira pill from the context bar to create one.</div>
                             </div>
                         </div>
 
@@ -314,54 +313,7 @@
 
                         </div>
 
-                        <!-- RIGHT: Intake panel (hidden by default) -->
-                        <div class="triage-intake-panel" id="triageIntakePanel" style="display:none">
-                            <div class="intake-panel__header">
-                                <h2 class="intake-panel__title">New Investigation</h2>
-                                <button class="intake-panel__close-btn" id="btnCloseIntake" title="Close">✕</button>
-                            </div>
-                            <div class="intake-panel__body">
-                                <!-- Case query section -->
-                                <div class="intake-panel__section">
-                                    <label class="intake-panel__label">Case / Ticket ID
-                                        <div class="intake-panel__case-row">
-                                            <input type="text" class="intake-panel__input" id="intakeCaseId" placeholder="e.g. INC-12345, JIRA-678">
-                                            <button class="intake-panel__fetch-btn" id="btnFetchCase">Fetch</button>
-                                        </div>
-                                    </label>
-                                    <div class="intake-panel__fetch-status" id="intakeFetchStatus"></div>
-                                </div>
-
-                                <div class="intake-panel__divider"><span>or enter manually</span></div>
-
-                                <!-- Manual entry section -->
-                                <div class="intake-panel__section">
-                                    <label class="intake-panel__label">Title
-                                        <input type="text" class="intake-panel__input" id="intakeTitle" placeholder="Brief description of the issue">
-                                    </label>
-                                    <label class="intake-panel__label">Severity
-                                        <select class="intake-panel__select" id="intakeSeverity">
-                                            <option value="critical">Critical</option>
-                                            <option value="high">High</option>
-                                            <option value="medium" selected>Medium</option>
-                                            <option value="low">Low</option>
-                                        </select>
-                                    </label>
-                                    <label class="intake-panel__label">Affected Systems
-                                        <input type="text" class="intake-panel__input" id="intakeSystems" placeholder="Comma-separated, e.g. api-gateway, nginx">
-                                    </label>
-                                    <label class="intake-panel__label">Description
-                                        <textarea class="intake-panel__textarea" id="intakeDescription" rows="4" placeholder="What's happening? Include any relevant context."></textarea>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="intake-panel__footer">
-                                <button class="intake-panel__cancel-btn" id="btnCancelIntake">Cancel</button>
-                                <button class="intake-panel__submit-btn" id="btnSubmitIntake">Create Investigation</button>
-                            </div>
-                        </div>
-
-                        <!-- RIGHT: Chat panel (hidden by default, replaces intake slot) -->
+                        <!-- RIGHT: Chat panel (hidden by default) -->
                         <div class="triage-chat-panel" id="triageChatPanel" style="display:none">
                             <div class="triage-chat-panel__header">
                                 <span class="triage-chat-panel__title" id="triageChatTitle">Investigation Chat</span>

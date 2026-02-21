@@ -614,6 +614,152 @@ select {
     background: var(--bg-surface-hover);
 }
 
+/* Case/Jira fetch row in popover */
+.context-bar__popover-fetch-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.context-bar__popover-fetch-row .context-bar__popover-input {
+    flex: 1;
+    margin-top: 0;
+}
+
+.context-bar__popover-fetch-btn {
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background var(--transition-fast);
+}
+
+.context-bar__popover-fetch-btn:hover {
+    background: var(--accent-primary-hover);
+}
+
+.context-bar__popover-fetch-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.context-bar__popover-fetch-status {
+    margin-top: 6px;
+    font-size: 11px;
+    min-height: 14px;
+}
+
+.context-bar__fetch-loading { color: var(--accent-primary); }
+.context-bar__fetch-success { color: var(--status-connected); }
+.context-bar__fetch-error { color: var(--status-error); }
+
+.context-bar__popover-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Result cards from case/jira fetch */
+.context-bar__popover-results {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.context-bar__result-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+.context-bar__result-card:hover {
+    border-color: var(--accent-primary);
+}
+
+.context-bar__result-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.context-bar__result-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.context-bar__result-severity {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.context-bar__result-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    line-height: 1.3;
+}
+
+.context-bar__result-systems {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    margin-bottom: 6px;
+}
+
+.context-bar__result-add-btn {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    transition: opacity 0.15s;
+}
+
+.context-bar__result-add-btn:hover {
+    opacity: 0.85;
+}
+
+/* Unfetched / warning state */
+.context-bar__result-card--unfetched {
+    border-color: var(--status-error);
+    opacity: 0.8;
+}
+
+.context-bar__result-warn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--status-error);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.context-bar__result-add-btn--unfetched {
+    background: var(--text-tertiary);
+}
+
 /* ---- Field-level toggle popover (right-click) ---- */
 
 .context-bar__field-popover {

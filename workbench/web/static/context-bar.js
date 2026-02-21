@@ -3,7 +3,8 @@
  *
  * Renders in the bar between workspace tabs and window tabs.
  * Each pill is an object with typed fields that can be individually toggled.
- * Pill types: custom (label + value), timeline (start_date + end_date).
+ * Pill types: case (fetched case data), jira (fetched Jira ticket),
+ * custom (key-value pair), timeline (start_date + end_date).
  */
 
 class ContextBar {
@@ -64,7 +65,8 @@ class ContextBar {
         // Type indicator
         const typeEl = document.createElement('span');
         typeEl.className = 'ctx-pill__type';
-        typeEl.textContent = pill.pill_type === 'timeline' ? '⏱' : '●';
+        const typeIcons = { case: '📋', jira: '🎫', timeline: '⏱', custom: '●' };
+        typeEl.textContent = typeIcons[pill.pill_type] || '●';
         el.appendChild(typeEl);
 
         // Label
@@ -106,6 +108,11 @@ class ContextBar {
 
     _pillValuePreview(pill) {
         const fields = pill.fields || {};
+        if (pill.pill_type === 'case' || pill.pill_type === 'jira') {
+            const title = fields.title;
+            const val = (title && typeof title === 'object') ? title.value : '';
+            return val ? `: ${this._truncate(val, 40)}` : '';
+        }
         if (pill.pill_type === 'custom') {
             const v = fields.value;
             const val = (v && typeof v === 'object') ? v.value : '';
@@ -271,6 +278,8 @@ class ContextBar {
         menu.className = 'context-bar__menu';
 
         const types = [
+            { type: 'case', icon: '📋', label: 'Case' },
+            { type: 'jira', icon: '🎫', label: 'Jira' },
             { type: 'custom', icon: '●', label: 'Custom' },
             { type: 'timeline', icon: '⏱', label: 'Timeline' },
         ];
@@ -308,7 +317,25 @@ class ContextBar {
         const popover = document.createElement('div');
         popover.className = 'context-bar__popover';
 
-        if (type === 'custom') {
+        if (type === 'case' || type === 'jira') {
+            const sourceLabel = type === 'jira' ? 'Jira Ticket ID' : 'Case / Ticket ID';
+            const placeholder = type === 'jira' ? 'e.g. PROJ-123' : 'e.g. INC-12345';
+            popover.innerHTML = `
+                <div class="context-bar__popover-title">Add ${type === 'jira' ? 'Jira' : 'Case'}</div>
+                <div class="context-bar__popover-field">
+                    <label class="context-bar__popover-label">${sourceLabel}</label>
+                    <div class="context-bar__popover-fetch-row">
+                        <input class="context-bar__popover-input" id="ctxNewCaseId" type="text" placeholder="${placeholder}" />
+                        <button class="context-bar__popover-fetch-btn" id="ctxFetchBtn">Fetch</button>
+                    </div>
+                </div>
+                <div class="context-bar__popover-fetch-status" id="ctxFetchStatus"></div>
+                <div class="context-bar__popover-results" id="ctxFetchResults"></div>
+                <div class="context-bar__popover-actions">
+                    <button class="context-bar__popover-btn context-bar__popover-btn--cancel" id="ctxCreateCancel">Cancel</button>
+                </div>
+            `;
+        } else if (type === 'custom') {
             popover.innerHTML = `
                 <div class="context-bar__popover-title">New Custom Pill</div>
                 <div class="context-bar__popover-field">
@@ -363,13 +390,148 @@ class ContextBar {
             saveBtn.addEventListener('click', () => this._submitCreateForm(type));
         }
 
-        // Enter key submits
-        popover.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                this._submitCreateForm(type);
+        // Case/Jira: wire fetch button
+        const fetchBtn = popover.querySelector('#ctxFetchBtn');
+        if (fetchBtn) {
+            fetchBtn.addEventListener('click', () => this._fetchCaseForPill(type));
+            // Enter on case ID input triggers fetch
+            const caseInput = popover.querySelector('#ctxNewCaseId');
+            if (caseInput) {
+                caseInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        this._fetchCaseForPill(type);
+                    }
+                });
             }
+        }
+
+        // Enter key submits (for non-case types)
+        if (type !== 'case' && type !== 'jira') {
+            popover.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this._submitCreateForm(type);
+                }
+            });
+        }
+    }
+
+    async _fetchCaseForPill(type) {
+        const caseId = document.getElementById('ctxNewCaseId')?.value.trim();
+        if (!caseId) return;
+
+        const btn = document.getElementById('ctxFetchBtn');
+        const statusEl = document.getElementById('ctxFetchStatus');
+        const resultsEl = document.getElementById('ctxFetchResults');
+
+        if (btn) { btn.textContent = 'Fetching...'; btn.disabled = true; }
+        if (statusEl) statusEl.innerHTML = '<span class="context-bar__fetch-loading">Querying sources...</span>';
+        if (resultsEl) resultsEl.innerHTML = '';
+
+        try {
+            const data = await this.app.apiFetch('/api/investigations/fetch-case', {
+                method: 'POST',
+                body: JSON.stringify({ case_id: caseId, source: type === 'jira' ? 'jira' : undefined }),
+            });
+
+            // Check if sources returned real data or just an unfetched marker
+            if (data.unfetched) {
+                if (statusEl) statusEl.innerHTML = `<span class="context-bar__fetch-error">${data.message || 'No sources configured'}</span>`;
+                if (resultsEl) {
+                    resultsEl.innerHTML = '';
+                    resultsEl.appendChild(this._renderUnfetchedCard(type, caseId, data.message));
+                }
+            } else {
+                const source = data.source || data._source || type;
+                if (statusEl) statusEl.innerHTML = `<span class="context-bar__fetch-success">Fetched from ${this._truncate(source, 20)}</span>`;
+
+                // Render result as clickable card — future: loop over multiple results
+                if (resultsEl) {
+                    const results = Array.isArray(data.results) ? data.results : [data];
+                    resultsEl.innerHTML = '';
+                    for (const result of results) {
+                        resultsEl.appendChild(this._renderResultCard(type, caseId, result));
+                    }
+                }
+            }
+        } catch (e) {
+            if (statusEl) statusEl.innerHTML = `<span class="context-bar__fetch-error">Failed: ${e.message}</span>`;
+
+            // Show unfetched fallback card
+            if (resultsEl) {
+                resultsEl.innerHTML = '';
+                resultsEl.appendChild(this._renderUnfetchedCard(type, caseId, e.message));
+            }
+        } finally {
+            if (btn) { btn.textContent = 'Fetch'; btn.disabled = false; }
+        }
+    }
+
+    _renderResultCard(type, caseId, data) {
+        const card = document.createElement('div');
+        card.className = 'context-bar__result-card';
+
+        const title = data.title || caseId;
+        const severity = data.severity ? `<span class="context-bar__result-severity">${data.severity}</span>` : '';
+        const desc = data.description ? `<div class="context-bar__result-desc">${this._truncate(data.description, 120)}</div>` : '';
+        const systems = (data.affected_systems || []).join(', ');
+        const systemsHtml = systems ? `<div class="context-bar__result-systems">${this._truncate(systems, 60)}</div>` : '';
+
+        card.innerHTML = `
+            <div class="context-bar__result-header">
+                <span class="context-bar__result-title">${this._truncate(title, 60)}</span>
+                ${severity}
+            </div>
+            ${desc}
+            ${systemsHtml}
+            <button class="context-bar__result-add-btn">+ Add as pill</button>
+        `;
+
+        card.querySelector('.context-bar__result-add-btn').addEventListener('click', () => {
+            const label = data.title ? `${caseId}: ${data.title}` : caseId;
+            const fields = {
+                case_id: { value: caseId, enabled: true },
+                title: { value: data.title || '', enabled: true },
+                severity: { value: data.severity || '', enabled: !!data.severity },
+                systems: { value: (data.affected_systems || []).join(', '), enabled: !!(data.affected_systems && data.affected_systems.length) },
+                description: { value: data.description || '', enabled: !!data.description },
+                source: { value: data.source || data._source || type, enabled: false },
+            };
+            this._hidePopover();
+            this.createPill(type, label, fields);
         });
+
+        return card;
+    }
+
+    _renderUnfetchedCard(type, caseId, message) {
+        const card = document.createElement('div');
+        card.className = 'context-bar__result-card context-bar__result-card--unfetched';
+
+        card.innerHTML = `
+            <div class="context-bar__result-header">
+                <span class="context-bar__result-warn">!</span>
+                <span class="context-bar__result-title">${this._truncate(caseId, 60)}</span>
+            </div>
+            <div class="context-bar__result-desc">${this._truncate(message || 'Could not fetch case data', 120)}</div>
+            <button class="context-bar__result-add-btn context-bar__result-add-btn--unfetched">+ Add as text entry</button>
+        `;
+
+        card.querySelector('.context-bar__result-add-btn').addEventListener('click', () => {
+            const fields = {
+                case_id: { value: caseId, enabled: true },
+                title: { value: '', enabled: false },
+                severity: { value: '', enabled: false },
+                systems: { value: '', enabled: false },
+                description: { value: '', enabled: false },
+                source: { value: 'unfetched', enabled: false },
+            };
+            this._hidePopover();
+            this.createPill(type, caseId, fields);
+        });
+
+        return card;
     }
 
     _submitCreateForm(type) {
@@ -471,6 +633,12 @@ class ContextBar {
             value: 'Value',
             start_date: 'Start Date',
             end_date: 'End Date',
+            case_id: 'Case ID',
+            title: 'Title',
+            severity: 'Severity',
+            systems: 'Systems',
+            description: 'Description',
+            source: 'Source',
         };
         return names[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     }

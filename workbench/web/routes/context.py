@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/workspaces", tags=["context"])
 
 class CreatePillRequest(BaseModel):
     """Request to create a new context pill."""
-    pill_type: str = Field(..., pattern=r"^(custom|timeline)$")
+    pill_type: str = Field(..., pattern=r"^(case|jira|custom|timeline)$")
     label: str = Field(..., min_length=1, max_length=200)
     fields: dict[str, Any] = Field(default_factory=dict)
 
@@ -130,6 +130,18 @@ async def build_context_pills_prefix(
                 val = value_field.get("value", "").strip()
                 if val:
                     parts.append(f"{label}: {val}")
+
+        elif pill_type in ("case", "jira"):
+            # Show all enabled fields as key: value pairs
+            field_parts = []
+            for fkey, fval in fields.items():
+                if isinstance(fval, dict) and fval.get("enabled", True):
+                    v = fval.get("value", "").strip()
+                    if v and fkey != "source":
+                        display_key = fkey.replace("_", " ").title()
+                        field_parts.append(f"  {display_key}: {v}")
+            if field_parts:
+                parts.append(f"{label}\n" + "\n".join(field_parts))
 
         elif pill_type == "timeline":
             timeline_parts = []
