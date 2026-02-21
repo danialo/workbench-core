@@ -347,6 +347,7 @@
                     <div class="recipe-window__header">
                         <h1 class="recipe-window__title">Recipes</h1>
                         <div class="recipe-window__actions">
+                            <button class="recipe-window__chat-btn" id="btnRecipeChat" title="Chat with AI to create recipes">Chat</button>
                             <button class="recipe-window__new-btn" id="btnNewRecipe">+ New Recipe</button>
                             <select class="recipe-window__filter" id="recipeTagFilter">
                                 <option value="">All Tags</option>
@@ -354,6 +355,14 @@
                         </div>
                     </div>
                     <div class="recipe-window__body" id="recipeBody">
+                        <!-- Chat panel (right side, hidden by default) -->
+                        <div class="recipe-window__chat-panel" id="recipeChatPanel" style="display:none">
+                            <div class="recipe-window__chat-header">
+                                <span class="recipe-window__chat-title">Recipe Builder</span>
+                                <button class="recipe-window__chat-close" id="btnRecipeChatClose">&times;</button>
+                            </div>
+                            <div class="recipe-window__chat-container" id="recipeChatContainer"></div>
+                        </div>
                         <div class="recipe-window__list">
                             <div class="recipe-window__search">
                                 <input type="text" class="recipe-window__search-input" id="recipeSearch" placeholder="Search recipes...">

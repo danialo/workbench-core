@@ -262,6 +262,14 @@ def create_app(
     recipe_registry.discover_global()
     app.state.recipe_registry = recipe_registry
 
+    # Register save_recipe tool so the LLM can create recipes via chat
+    try:
+        from workbench.tools.recipe_tool import SaveRecipeTool
+        if registry is not None:
+            registry.register(SaveRecipeTool(recipe_registry))
+    except Exception:
+        logger.debug("Could not register SaveRecipeTool", exc_info=True)
+
     # ---- Static files ----
     if _STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")

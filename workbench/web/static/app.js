@@ -1039,6 +1039,8 @@ class AgentManagerApp {
                     });
                     toolGroup.querySelector('.tool-call-group__summary').appendChild(saveBtn);
                 }
+                // Notify listeners that a stream completed (e.g. recipe auto-refresh)
+                document.dispatchEvent(new CustomEvent('wb:stream-done'));
                 break;
         }
     }

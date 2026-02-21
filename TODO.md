@@ -59,6 +59,7 @@
 - [ ] Bulk actions (multi-select, bulk resolve/escalate)
 - [ ] Investigation timeline / activity log
 - [ ] Export investigation summary
+- [ ] **Auto-normalize timeline on case pill** — when a Case or Jira pill is added via context bar, auto-create a companion Timeline pill with the case creation timestamp as start_date and current time as end_date. Gives the agent an immediate time window for log correlation
 
 ## Editor Window
 
