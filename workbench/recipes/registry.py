@@ -37,6 +37,14 @@ class RecipeRegistry:
         self._compiled_triggers[recipe.name] = patterns
         return True
 
+    def unregister(self, name: str) -> bool:
+        """Remove a recipe from the registry. Returns True if it existed."""
+        if name in self._recipes:
+            del self._recipes[name]
+            self._compiled_triggers.pop(name, None)
+            return True
+        return False
+
     def get(self, name: str) -> Recipe | None:
         return self._recipes.get(name)
 

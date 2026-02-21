@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
+import shutil
+
 from workbench.recipes.executor import RecipeError, RecipeExecutor
 from workbench.recipes.schema import load_recipe_from_yaml
 
@@ -35,6 +37,10 @@ class RunRecipeRequest(BaseModel):
 
 class SaveRecipeRequest(BaseModel):
     yaml_content: str = Field(..., min_length=1)
+    scope: str = Field(
+        default="",
+        description="'personal' for ~/.workbench/recipes, 'project' for workspace .workbench/recipes. Empty = auto (project if workspace has path, else personal).",
+    )
 
 
 # -----------------------------------------------------------------------
@@ -153,11 +159,21 @@ async def save_recipe(
             400, f"Recipe validation failed: {'; '.join(errors)}"
         )
 
-    # Save to workspace recipes dir (or global if no workspace path)
-    if ws and ws.path:
-        recipes_dir = Path(ws.path) / ".workbench" / "recipes" / recipe.name
-    else:
+    # Determine save location based on scope
+    if req.scope == "personal":
         recipes_dir = Path.home() / ".workbench" / "recipes" / recipe.name
+    elif req.scope == "project" and ws and ws.path:
+        recipes_dir = Path(ws.path) / ".workbench" / "recipes" / recipe.name
+    elif req.scope == "project" and (not ws or not ws.path):
+        raise HTTPException(
+            400, "Cannot save as project recipe: workspace has no path"
+        )
+    else:
+        # Auto: project if workspace has path, else personal
+        if ws and ws.path:
+            recipes_dir = Path(ws.path) / ".workbench" / "recipes" / recipe.name
+        else:
+            recipes_dir = Path.home() / ".workbench" / "recipes" / recipe.name
 
     recipes_dir.mkdir(parents=True, exist_ok=True)
     (recipes_dir / "recipe.yaml").write_text(
@@ -170,11 +186,39 @@ async def save_recipe(
         recipe.source_path = str(recipes_dir)
         recipe_registry.register(recipe)
 
+    saved_scope = "personal" if str(Path.home()) in str(recipes_dir) else "project"
     return JSONResponse(
         {
             "name": recipe.name,
             "version": recipe.version,
             "path": str(recipes_dir),
+            "scope": saved_scope,
         },
         status_code=201,
     )
+
+
+@router.delete("/{workspace_id}/recipes/{recipe_name}")
+async def delete_recipe(
+    workspace_id: str, recipe_name: str, request: Request
+):
+    """Delete a recipe by name."""
+    recipe_registry = getattr(request.app.state, "recipe_registry", None)
+    if recipe_registry is None:
+        raise HTTPException(404, f"Recipe not found: {recipe_name}")
+
+    recipe = recipe_registry.get(recipe_name)
+    if recipe is None:
+        raise HTTPException(404, f"Recipe not found: {recipe_name}")
+
+    # Remove from disk
+    source = Path(recipe.source_path) if recipe.source_path else None
+    if source and source.is_dir():
+        shutil.rmtree(source)
+    elif source and source.is_file():
+        source.unlink()
+
+    # Unregister
+    recipe_registry.unregister(recipe_name)
+
+    return JSONResponse({"deleted": recipe_name})

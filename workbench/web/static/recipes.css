@@ -418,6 +418,25 @@
     filter: brightness(1.1);
 }
 
+.recipe-delete-btn {
+    padding: 8px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    background: transparent;
+    color: var(--text-tertiary);
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    margin-left: auto;
+}
+
+.recipe-delete-btn:hover {
+    color: var(--status-error);
+    border-color: var(--status-error);
+    background: rgba(255, 80, 80, 0.08);
+}
+
 /* ================================================================
    OUTPUT AREA
    ================================================================ */
@@ -862,12 +881,134 @@
 }
 
 /* ================================================================
-   RECIPE INPUT BAR (matches inbox chat input)
+   RECIPE CHAT (messages + input bar)
    ================================================================ */
+
+.recipe-window__messages {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-subtle);
+    max-height: 300px;
+}
+
+.recipe-window__messages:not(:empty) {
+    display: flex;
+}
 
 .recipe-window > .conversation-view__input-area {
     flex-shrink: 0;
     padding: 8px 20px 16px;
+}
+
+/* ================================================================
+   SAVE-AS-RECIPE BUTTON (inline in assistant message)
+   ================================================================ */
+
+.recipe-window__messages .btn-save-recipe {
+    align-self: flex-end;
+    margin-top: 4px;
+}
+
+/* ================================================================
+   SCOPE DIALOG (personal vs project)
+   ================================================================ */
+
+.recipe-scope-dialog__overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.recipe-scope-dialog {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-medium);
+    border-radius: 10px;
+    padding: 20px;
+    min-width: 340px;
+    max-width: 420px;
+}
+
+.recipe-scope-dialog__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+}
+
+.recipe-scope-dialog__options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.recipe-scope-dialog__option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-align: left;
+    flex-wrap: wrap;
+}
+
+.recipe-scope-dialog__option:hover {
+    border-color: var(--accent-primary);
+    background: var(--accent-dim);
+}
+
+.recipe-scope-dialog__option-icon {
+    font-size: 14px;
+    font-weight: 700;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: var(--accent-primary);
+    flex-shrink: 0;
+    width: 24px;
+    text-align: center;
+    line-height: 20px;
+}
+
+.recipe-scope-dialog__option-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.recipe-scope-dialog__option-desc {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    width: 100%;
+    padding-left: 34px;
+    margin-top: 2px;
+}
+
+.recipe-scope-dialog__cancel {
+    width: 100%;
+    padding: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.recipe-scope-dialog__cancel:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
 }
 
 
