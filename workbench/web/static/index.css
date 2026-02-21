@@ -810,6 +810,161 @@ select {
     white-space: nowrap;
 }
 
+/* ---- Context menu (right-click on pill) ---- */
+
+.context-bar__ctx-menu {
+    position: fixed;
+    min-width: 180px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    padding: 4px 0;
+    z-index: 400;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.context-bar__ctx-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.context-bar__ctx-menu-item:hover {
+    background: var(--bg-surface-hover);
+}
+
+.context-bar__ctx-menu-item--danger {
+    color: var(--status-error, #e74c3c);
+}
+
+.context-bar__ctx-menu-item--danger:hover {
+    background: rgba(231, 76, 60, 0.1);
+}
+
+.context-bar__ctx-menu-item--disabled {
+    opacity: 0.35;
+    cursor: default;
+    pointer-events: none;
+}
+
+.context-bar__ctx-menu-icon {
+    font-size: 13px;
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.context-bar__ctx-menu-sep {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 4px 8px;
+}
+
+/* ---- Edit popover (double-click) ---- */
+
+.context-bar__edit-popover {
+    position: fixed;
+    width: 300px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    padding: 14px;
+    z-index: 350;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.context-bar__edit-popover-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.context-bar__edit-field {
+    margin-bottom: 8px;
+}
+
+.context-bar__edit-field-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 3px;
+}
+
+.context-bar__edit-field-input {
+    width: 100%;
+    padding: 5px 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    box-sizing: border-box;
+}
+
+.context-bar__edit-field-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.context-bar__edit-popover-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+/* ---- Drag-to-reorder states ---- */
+
+.ctx-pill--dragging {
+    opacity: 0.4;
+}
+
+.ctx-pill--drag-over {
+    border-color: var(--accent-primary) !important;
+    box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.context-bar .ctx-pill[draggable="true"] {
+    cursor: grab;
+}
+
+.context-bar .ctx-pill[draggable="true"]:active {
+    cursor: grabbing;
+}
+
+/* ---- Context budget indicator ---- */
+
+.context-bar__budget {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    padding: 2px 6px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.context-bar__budget--medium {
+    color: var(--accent-primary);
+}
+
+.context-bar__budget--high {
+    color: var(--status-error, #e74c3c);
+}
+
 /* ================================================================
    WINDOW CONTAINERS
    ================================================================ */

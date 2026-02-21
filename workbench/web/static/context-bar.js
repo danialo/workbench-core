@@ -14,6 +14,9 @@ class ContextBar {
         this._menuOpen = false;
         this._popoverOpen = false;
         this._fieldPopover = null;
+        this._contextMenu = null;
+        this._editPopover = null;
+        this._dragState = null;
     }
 
     async init() {
@@ -47,6 +50,7 @@ class ContextBar {
 
         if (this.pills.length === 0) {
             container.innerHTML = '<span class="context-bar__empty">No context pills</span>';
+            this._updateBudget();
             return;
         }
 
@@ -54,6 +58,7 @@ class ContextBar {
         for (const pill of this.pills) {
             container.appendChild(this._renderPill(pill));
         }
+        this._updateBudget();
     }
 
     _renderPill(pill) {
@@ -61,6 +66,7 @@ class ContextBar {
         const stateClass = pill.enabled ? 'ctx-pill--on' : 'ctx-pill--off';
         el.className = `ctx-pill ${stateClass}`;
         el.dataset.pillId = pill.pill_id;
+        el.draggable = true;
 
         // Type indicator
         const typeEl = document.createElement('span');
@@ -97,11 +103,26 @@ class ContextBar {
             this.togglePill(pill.pill_id, !pill.enabled);
         });
 
-        // Right-click → field-level popover
+        // Double-click → edit popover
+        el.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this._showEditPopover(pill, e.clientX, e.clientY);
+        });
+
+        // Right-click → context menu
         el.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            this._showFieldPopover(pill, e.clientX, e.clientY);
+            this._showContextMenu(pill, e.clientX, e.clientY);
         });
+
+        // Drag events
+        el.addEventListener('dragstart', (e) => this._onDragStart(e, pill));
+        el.addEventListener('dragover', (e) => this._onDragOver(e, pill));
+        el.addEventListener('dragenter', (e) => this._onDragEnter(e));
+        el.addEventListener('dragleave', (e) => this._onDragLeave(e));
+        el.addEventListener('drop', (e) => this._onDrop(e, pill));
+        el.addEventListener('dragend', () => this._onDragEnd());
 
         return el;
     }
@@ -189,16 +210,31 @@ class ContextBar {
         }
     }
 
+    async updatePill(pillId, updates) {
+        const wsId = this.app.activeWorkspaceId || 'global';
+        try {
+            await this.app.apiFetch(`/api/workspaces/${wsId}/context/${pillId}`, {
+                method: 'PUT',
+                body: JSON.stringify(updates),
+            });
+            await this.loadPills();
+        } catch (e) {
+            console.error('Failed to update pill:', e);
+        }
+    }
+
     async createPill(type, label, fields) {
         const wsId = this.app.activeWorkspaceId || 'global';
         try {
-            await this.app.apiFetch(`/api/workspaces/${wsId}/context`, {
+            const result = await this.app.apiFetch(`/api/workspaces/${wsId}/context`, {
                 method: 'POST',
                 body: JSON.stringify({ pill_type: type, label, fields }),
             });
             await this.loadPills();
+            return result;
         } catch (e) {
             console.error('Failed to create pill:', e);
+            return null;
         }
     }
 
@@ -215,6 +251,18 @@ class ContextBar {
         } catch (e) {
             console.error('Failed to delete pill:', e);
             await this.loadPills();
+        }
+    }
+
+    async _reorderPill(pillId, newOrder) {
+        const wsId = this.app.activeWorkspaceId || 'global';
+        try {
+            await this.app.apiFetch(`/api/workspaces/${wsId}/context/${pillId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ sort_order: newOrder }),
+            });
+        } catch (e) {
+            console.error('Failed to reorder pill:', e);
         }
     }
 
@@ -242,6 +290,12 @@ class ContextBar {
             if (this._fieldPopover && !e.target.closest('.context-bar__field-popover')) {
                 this._hideFieldPopover();
             }
+            if (this._contextMenu && !e.target.closest('.context-bar__ctx-menu')) {
+                this._hideContextMenu();
+            }
+            if (this._editPopover && !e.target.closest('.context-bar__edit-popover')) {
+                this._hideEditPopover();
+            }
         });
 
         // Escape key closes everything
@@ -250,8 +304,401 @@ class ContextBar {
                 this._hideMenu();
                 this._hidePopover();
                 this._hideFieldPopover();
+                this._hideContextMenu();
+                this._hideEditPopover();
             }
         });
+    }
+
+    // ------------------------------------------------------------------
+    // Context menu (right-click)
+    // ------------------------------------------------------------------
+
+    _showContextMenu(pill, x, y) {
+        this._hideContextMenu();
+        this._hideFieldPopover();
+        this._hideEditPopover();
+        this._hideMenu();
+        this._hidePopover();
+
+        const menu = document.createElement('div');
+        menu.className = 'context-bar__ctx-menu';
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+
+        const idx = this.pills.findIndex(p => p.pill_id === pill.pill_id);
+
+        const items = [
+            { label: 'Edit', icon: '✏️', action: () => this._showEditPopover(pill, x, y) },
+            { label: pill.enabled ? 'Disable' : 'Enable', icon: pill.enabled ? '⬜' : '✅', action: () => this.togglePill(pill.pill_id, !pill.enabled) },
+            { label: 'Fields…', icon: '🔧', action: () => this._showFieldPopover(pill, x, y) },
+            null, // separator
+            { label: 'Move Left', icon: '←', action: () => this._movePill(idx, -1), disabled: idx <= 0 },
+            { label: 'Move Right', icon: '→', action: () => this._movePill(idx, 1), disabled: idx >= this.pills.length - 1 },
+            null,
+            { label: 'Copy Value', icon: '📋', action: () => this._copyPillValue(pill) },
+            { label: 'Duplicate', icon: '⧉', action: () => this._duplicatePill(pill) },
+            null,
+            { label: 'Remove', icon: '🗑', action: () => this.deletePill(pill.pill_id), danger: true },
+        ];
+
+        for (const item of items) {
+            if (item === null) {
+                const sep = document.createElement('div');
+                sep.className = 'context-bar__ctx-menu-sep';
+                menu.appendChild(sep);
+                continue;
+            }
+            const btn = document.createElement('button');
+            btn.className = 'context-bar__ctx-menu-item';
+            if (item.danger) btn.classList.add('context-bar__ctx-menu-item--danger');
+            if (item.disabled) btn.classList.add('context-bar__ctx-menu-item--disabled');
+            btn.innerHTML = `<span class="context-bar__ctx-menu-icon">${item.icon}</span>${item.label}`;
+            if (!item.disabled) {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this._hideContextMenu();
+                    item.action();
+                });
+            }
+            menu.appendChild(btn);
+        }
+
+        document.body.appendChild(menu);
+        this._contextMenu = menu;
+
+        // Keep within viewport
+        requestAnimationFrame(() => {
+            const rect = menu.getBoundingClientRect();
+            if (rect.right > window.innerWidth) {
+                menu.style.left = `${window.innerWidth - rect.width - 8}px`;
+            }
+            if (rect.bottom > window.innerHeight) {
+                menu.style.top = `${window.innerHeight - rect.height - 8}px`;
+            }
+        });
+    }
+
+    _hideContextMenu() {
+        if (this._contextMenu) {
+            this._contextMenu.remove();
+            this._contextMenu = null;
+        }
+    }
+
+    async _movePill(fromIdx, direction) {
+        const toIdx = fromIdx + direction;
+        if (toIdx < 0 || toIdx >= this.pills.length) return;
+
+        // Swap in local array
+        const temp = this.pills[fromIdx];
+        this.pills[fromIdx] = this.pills[toIdx];
+        this.pills[toIdx] = temp;
+
+        // Assign sequential sort_order and update both
+        this.pills[fromIdx].sort_order = fromIdx;
+        this.pills[toIdx].sort_order = toIdx;
+        this.render();
+
+        await Promise.all([
+            this._reorderPill(this.pills[fromIdx].pill_id, fromIdx),
+            this._reorderPill(this.pills[toIdx].pill_id, toIdx),
+        ]);
+    }
+
+    _copyPillValue(pill) {
+        let text = pill.label;
+        const fields = pill.fields || {};
+        const parts = [];
+        for (const [key, field] of Object.entries(fields)) {
+            if (typeof field === 'object' && field.value && field.enabled !== false) {
+                parts.push(`${this._fieldDisplayName(key)}: ${field.value}`);
+            }
+        }
+        if (parts.length) text += '\n' + parts.join('\n');
+
+        navigator.clipboard.writeText(text).catch(() => {
+            // Fallback
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+        });
+    }
+
+    async _duplicatePill(pill) {
+        const newFields = JSON.parse(JSON.stringify(pill.fields || {}));
+        await this.createPill(pill.pill_type, pill.label + ' (copy)', newFields);
+    }
+
+    // ------------------------------------------------------------------
+    // Edit popover (double-click)
+    // ------------------------------------------------------------------
+
+    _showEditPopover(pill, x, y) {
+        this._hideEditPopover();
+        this._hideContextMenu();
+        this._hideFieldPopover();
+
+        const pop = document.createElement('div');
+        pop.className = 'context-bar__edit-popover';
+        pop.style.left = `${x}px`;
+        pop.style.top = `${y}px`;
+
+        const title = document.createElement('div');
+        title.className = 'context-bar__edit-popover-title';
+        title.textContent = `Edit ${pill.pill_type === 'custom' ? 'Custom' : pill.pill_type === 'timeline' ? 'Timeline' : pill.pill_type.charAt(0).toUpperCase() + pill.pill_type.slice(1)} Pill`;
+        pop.appendChild(title);
+
+        // Label field (always)
+        const labelGroup = this._createEditField('Label', pill.label, 'edit-pill-label');
+        pop.appendChild(labelGroup);
+
+        // Type-specific fields
+        const fields = pill.fields || {};
+
+        if (pill.pill_type === 'custom') {
+            const valField = fields.value || {};
+            const valGroup = this._createEditField('Value', valField.value || '', 'edit-pill-value');
+            pop.appendChild(valGroup);
+        } else if (pill.pill_type === 'timeline') {
+            const startField = fields.start_date || {};
+            const endField = fields.end_date || {};
+            const startGroup = this._createEditField('Start Date', this._isoToLocal(startField.value || ''), 'edit-pill-start', 'datetime-local');
+            const endGroup = this._createEditField('End Date', this._isoToLocal(endField.value || ''), 'edit-pill-end', 'datetime-local');
+            pop.appendChild(startGroup);
+            pop.appendChild(endGroup);
+        } else if (pill.pill_type === 'case' || pill.pill_type === 'jira') {
+            for (const [key, field] of Object.entries(fields)) {
+                if (typeof field !== 'object' || key === 'source') continue;
+                const group = this._createEditField(
+                    this._fieldDisplayName(key),
+                    field.value || '',
+                    `edit-pill-${key}`
+                );
+                pop.appendChild(group);
+            }
+        }
+
+        // Actions
+        const actions = document.createElement('div');
+        actions.className = 'context-bar__edit-popover-actions';
+        actions.innerHTML = `
+            <button class="context-bar__popover-btn context-bar__popover-btn--cancel" id="editPillCancel">Cancel</button>
+            <button class="context-bar__popover-btn context-bar__popover-btn--save" id="editPillSave">Save</button>
+        `;
+        pop.appendChild(actions);
+
+        document.body.appendChild(pop);
+        this._editPopover = pop;
+
+        // Focus first editable input
+        const firstInput = pop.querySelector('input');
+        if (firstInput) setTimeout(() => firstInput.focus(), 50);
+
+        // Keep within viewport
+        requestAnimationFrame(() => {
+            const rect = pop.getBoundingClientRect();
+            if (rect.right > window.innerWidth) pop.style.left = `${window.innerWidth - rect.width - 8}px`;
+            if (rect.bottom > window.innerHeight) pop.style.top = `${window.innerHeight - rect.height - 8}px`;
+        });
+
+        // Bind actions
+        pop.querySelector('#editPillCancel').addEventListener('click', () => this._hideEditPopover());
+        pop.querySelector('#editPillSave').addEventListener('click', () => this._submitEdit(pill));
+        pop.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this._submitEdit(pill);
+            }
+        });
+    }
+
+    _createEditField(label, value, id, type = 'text') {
+        const group = document.createElement('div');
+        group.className = 'context-bar__edit-field';
+        group.innerHTML = `
+            <label class="context-bar__edit-field-label">${label}</label>
+            <input class="context-bar__edit-field-input" id="${id}" type="${type}" value="${this._escapeAttr(value)}" />
+        `;
+        return group;
+    }
+
+    _escapeAttr(str) {
+        return str.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    _isoToLocal(iso) {
+        if (!iso) return '';
+        try {
+            const d = new Date(iso);
+            // Format as YYYY-MM-DDTHH:mm for datetime-local input
+            const pad = n => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        } catch {
+            return '';
+        }
+    }
+
+    async _submitEdit(pill) {
+        const labelInput = this._editPopover?.querySelector('#edit-pill-label');
+        const newLabel = labelInput?.value?.trim();
+        if (!newLabel) return;
+
+        const updates = { label: newLabel };
+        const newFields = JSON.parse(JSON.stringify(pill.fields || {}));
+
+        if (pill.pill_type === 'custom') {
+            const valInput = this._editPopover.querySelector('#edit-pill-value');
+            if (valInput) newFields.value = { ...newFields.value, value: valInput.value.trim() };
+        } else if (pill.pill_type === 'timeline') {
+            const startInput = this._editPopover.querySelector('#edit-pill-start');
+            const endInput = this._editPopover.querySelector('#edit-pill-end');
+            if (startInput && startInput.value) {
+                newFields.start_date = { ...newFields.start_date, value: new Date(startInput.value).toISOString() };
+            }
+            if (endInput && endInput.value) {
+                newFields.end_date = { ...newFields.end_date, value: new Date(endInput.value).toISOString() };
+            }
+        } else if (pill.pill_type === 'case' || pill.pill_type === 'jira') {
+            for (const key of Object.keys(newFields)) {
+                if (key === 'source') continue;
+                const input = this._editPopover.querySelector(`#edit-pill-${key}`);
+                if (input) newFields[key] = { ...newFields[key], value: input.value.trim() };
+            }
+        }
+
+        updates.fields = newFields;
+        this._hideEditPopover();
+        await this.updatePill(pill.pill_id, updates);
+    }
+
+    _hideEditPopover() {
+        if (this._editPopover) {
+            this._editPopover.remove();
+            this._editPopover = null;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Drag-to-reorder
+    // ------------------------------------------------------------------
+
+    _onDragStart(e, pill) {
+        this._dragState = { pillId: pill.pill_id };
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', pill.pill_id);
+        e.target.classList.add('ctx-pill--dragging');
+    }
+
+    _onDragOver(e, pill) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    }
+
+    _onDragEnter(e) {
+        const pillEl = e.target.closest('.ctx-pill');
+        if (pillEl) pillEl.classList.add('ctx-pill--drag-over');
+    }
+
+    _onDragLeave(e) {
+        const pillEl = e.target.closest('.ctx-pill');
+        if (pillEl) pillEl.classList.remove('ctx-pill--drag-over');
+    }
+
+    async _onDrop(e, targetPill) {
+        e.preventDefault();
+        const pillEl = e.target.closest('.ctx-pill');
+        if (pillEl) pillEl.classList.remove('ctx-pill--drag-over');
+
+        if (!this._dragState) return;
+        const sourcePillId = this._dragState.pillId;
+        if (sourcePillId === targetPill.pill_id) return;
+
+        const fromIdx = this.pills.findIndex(p => p.pill_id === sourcePillId);
+        const toIdx = this.pills.findIndex(p => p.pill_id === targetPill.pill_id);
+        if (fromIdx === -1 || toIdx === -1) return;
+
+        // Move pill in array
+        const [moved] = this.pills.splice(fromIdx, 1);
+        this.pills.splice(toIdx, 0, moved);
+
+        // Update sort_order for all pills
+        const updates = [];
+        for (let i = 0; i < this.pills.length; i++) {
+            this.pills[i].sort_order = i;
+            updates.push(this._reorderPill(this.pills[i].pill_id, i));
+        }
+        this.render();
+        await Promise.all(updates);
+    }
+
+    _onDragEnd() {
+        this._dragState = null;
+        document.querySelectorAll('.ctx-pill--dragging').forEach(el => el.classList.remove('ctx-pill--dragging'));
+        document.querySelectorAll('.ctx-pill--drag-over').forEach(el => el.classList.remove('ctx-pill--drag-over'));
+    }
+
+    // ------------------------------------------------------------------
+    // Auto-normalize timeline on case/jira pill creation
+    // ------------------------------------------------------------------
+
+    async createPillWithAutoTimeline(type, label, fields) {
+        const result = await this.createPill(type, label, fields);
+
+        // Auto-create companion timeline pill for case/jira
+        if ((type === 'case' || type === 'jira') && result) {
+            const now = new Date().toISOString();
+            // Default timeline: 24h window ending now
+            const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const caseId = fields.case_id?.value || label;
+            await this.createPill('timeline', `${caseId} Timeline`, {
+                start_date: { value: start, enabled: true },
+                end_date: { value: now, enabled: true },
+            });
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Context budget (token estimate)
+    // ------------------------------------------------------------------
+
+    _updateBudget() {
+        const budgetEl = document.getElementById('contextBudget');
+        if (!budgetEl) return;
+
+        const enabledPills = this.pills.filter(p => p.enabled);
+        if (enabledPills.length === 0) {
+            budgetEl.textContent = '';
+            budgetEl.title = '';
+            return;
+        }
+
+        // Rough token estimate: ~4 chars per token
+        let charCount = 0;
+        charCount += '## Workspace Context\n\n'.length;
+        for (const pill of enabledPills) {
+            const fields = pill.fields || {};
+            for (const [key, field] of Object.entries(fields)) {
+                if (typeof field === 'object' && field.enabled !== false && field.value) {
+                    charCount += pill.label.length + key.length + field.value.length + 6; // overhead
+                }
+            }
+        }
+        const estimatedTokens = Math.ceil(charCount / 4);
+
+        budgetEl.textContent = `~${estimatedTokens} tok`;
+        budgetEl.title = `${enabledPills.length} pill${enabledPills.length !== 1 ? 's' : ''} enabled, ~${estimatedTokens} tokens estimated`;
+
+        // Color coding based on token count
+        budgetEl.className = 'context-bar__budget';
+        if (estimatedTokens > 2000) {
+            budgetEl.classList.add('context-bar__budget--high');
+        } else if (estimatedTokens > 1000) {
+            budgetEl.classList.add('context-bar__budget--medium');
+        }
     }
 
     // ------------------------------------------------------------------
@@ -269,6 +716,8 @@ class ContextBar {
     _showMenu() {
         this._hidePopover();
         this._hideFieldPopover();
+        this._hideContextMenu();
+        this._hideEditPopover();
 
         // Remove existing menu
         const existing = document.querySelector('.context-bar__menu');
@@ -499,7 +948,8 @@ class ContextBar {
                 source: { value: data.source || data._source || type, enabled: false },
             };
             this._hidePopover();
-            this.createPill(type, label, fields);
+            // Use auto-timeline creation for case/jira pills
+            this.createPillWithAutoTimeline(type, label, fields);
         });
 
         return card;
@@ -562,13 +1012,14 @@ class ContextBar {
     }
 
     // ------------------------------------------------------------------
-    // Field-level popover (right-click on pill)
+    // Field-level popover (right-click → Fields…)
     // ------------------------------------------------------------------
 
     _showFieldPopover(pill, x, y) {
         this._hideFieldPopover();
         this._hideMenu();
         this._hidePopover();
+        this._hideContextMenu();
 
         const pop = document.createElement('div');
         pop.className = 'context-bar__field-popover';

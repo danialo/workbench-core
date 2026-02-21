@@ -74,6 +74,7 @@
         <div class="context-bar__pills" id="contextBarPills">
             <span class="context-bar__empty">No context pills</span>
         </div>
+        <span class="context-bar__budget" id="contextBudget"></span>
     </div>
 
     <!-- WINDOW TAB BAR -->
@@ -343,7 +344,6 @@
                     <div class="recipe-window__header">
                         <h1 class="recipe-window__title">Recipes</h1>
                         <div class="recipe-window__actions">
-                            <button class="recipe-window__chat-btn" id="btnRecipeChat" title="Chat with AI to create recipes">Chat</button>
                             <button class="recipe-window__new-btn" id="btnNewRecipe">+ New Recipe</button>
                             <select class="recipe-window__filter" id="recipeTagFilter">
                                 <option value="">All Tags</option>
@@ -351,14 +351,6 @@
                         </div>
                     </div>
                     <div class="recipe-window__body" id="recipeBody">
-                        <!-- Chat panel (right side, hidden by default) -->
-                        <div class="recipe-window__chat-panel" id="recipeChatPanel" style="display:none">
-                            <div class="recipe-window__chat-header">
-                                <span class="recipe-window__chat-title">Recipe Builder</span>
-                                <button class="recipe-window__chat-close" id="btnRecipeChatClose">&times;</button>
-                            </div>
-                            <div class="recipe-window__chat-container" id="recipeChatContainer"></div>
-                        </div>
                         <div class="recipe-window__list">
                             <div class="recipe-window__search">
                                 <input type="text" class="recipe-window__search-input" id="recipeSearch" placeholder="Search recipes...">
@@ -373,6 +365,34 @@
                                 <p>Select a recipe to view details and run it.</p>
                             </div>
                             <div class="recipe-detail-view" id="recipeDetailView" style="display:none"></div>
+                        </div>
+                    </div>
+                    <div class="conversation-view__input-area">
+                        <div class="input-box" id="recipeInputBox">
+                            <textarea class="input-box__textarea" id="recipeMessageInput"
+                                placeholder="Ask anything about recipes..." rows="1"></textarea>
+                            <div class="input-box__controls">
+                                <div class="input-box__left-controls">
+                                    <button class="input-box__control-btn" id="recipeBtnAttach" title="Attach">+</button>
+                                    <div class="input-box__selector">
+                                        <span class="input-box__selector-label">▸</span>
+                                        <select class="input-box__mode-select" id="recipeModeSelect">
+                                            <option value="planning">Planning</option>
+                                            <option value="execution">Execution</option>
+                                            <option value="diagnostics">Diagnostics</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-box__selector">
+                                        <span class="input-box__selector-label">▸</span>
+                                        <select class="input-box__model-select" id="recipeModelSelect">
+                                            <option value="default">Gemini 3 Flash</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="input-box__right-controls">
+                                    <button class="input-box__send-btn" id="recipeBtnSend" title="Send">➤</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
