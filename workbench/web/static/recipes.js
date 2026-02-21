@@ -17,6 +17,7 @@ class RecipeWindow {
 
     activate() {
         this.fetchRecipes();
+        this.populateRecipeModelSelect();
     }
 
     deactivate() {
@@ -59,22 +60,214 @@ class RecipeWindow {
 
     // ---- Recipe Chat ----
 
+    async ensureRecipeSession() {
+        if (this.recipeSessionId) return;
+        try {
+            const wsId = this.app.activeWorkspaceId || 'global';
+            const data = await this.app.apiFetch('/api/sessions', {
+                method: 'POST',
+                body: JSON.stringify({
+                    workspace_id: wsId,
+                    metadata: { recipe_builder: true },
+                }),
+            });
+            this.recipeSessionId = data.session_id;
+        } catch (e) {
+            console.error('Failed to create recipe session:', e);
+        }
+    }
+
+    async populateRecipeModelSelect() {
+        try {
+            const data = await this.app.apiFetch('/api/providers');
+            const select = document.getElementById('recipeModelSelect');
+            if (select && data.providers && data.providers.length > 0) {
+                select.innerHTML = '';
+                for (const p of data.providers) {
+                    const opt = document.createElement('option');
+                    opt.value = p;
+                    opt.textContent = p;
+                    opt.selected = (p === data.active);
+                    select.appendChild(opt);
+                }
+            }
+        } catch (e) {
+            console.warn('Could not fetch providers for recipe chat:', e);
+        }
+    }
+
+    appendRecipeMessage(role, content) {
+        const container = document.getElementById('recipeMessages');
+        if (!container) return null;
+
+        const el = document.createElement('div');
+        el.className = `message message--${role}`;
+        el.innerHTML = `
+            <div class="message__role">${role === 'user' ? 'You' : 'Agent'}</div>
+            <div class="message__content">${this.app.escapeHtml(content)}</div>
+        `;
+        container.appendChild(el);
+        container.scrollTop = container.scrollHeight;
+        return el;
+    }
+
+    createRecipeAssistantContainer() {
+        const container = document.getElementById('recipeMessages');
+        if (!container) return null;
+
+        const div = document.createElement('div');
+        div.className = 'message message--assistant';
+
+        const avatar = document.createElement('div');
+        avatar.className = 'message__avatar';
+        avatar.textContent = 'Agent';
+
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'message__body';
+
+        const content = document.createElement('div');
+        content.className = 'message__content';
+
+        contentWrapper.appendChild(content);
+        div.appendChild(avatar);
+        div.appendChild(contentWrapper);
+
+        container.appendChild(div);
+        return div;
+    }
+
     async sendRecipeMessage() {
         const input = document.getElementById('recipeMessageInput');
         if (!input) return;
         const text = input.value.trim();
-        if (!text) return;
+        if (!text || this.recipeSending) return;
 
         input.value = '';
+        this.recipeSending = true;
 
-        // Switch to inbox window and send the message there
-        // (the recipe chat shares the main conversation flow)
-        this.app.switchWindow('inbox');
-        const mainInput = document.getElementById('messageInput');
-        if (mainInput) {
-            mainInput.value = text;
-            this.app.sendMessage();
+        await this.ensureRecipeSession();
+        if (!this.recipeSessionId) {
+            this.recipeSending = false;
+            return;
         }
+
+        this.appendRecipeMessage('user', text);
+        const assistantDiv = this.createRecipeAssistantContainer();
+        const contentEl = assistantDiv ? assistantDiv.querySelector('.message__content') : null;
+
+        try {
+            const response = await fetch(`/api/sessions/${this.recipeSessionId}/stream`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': this.app.csrfToken,
+                    ...(this.app.authToken ? {'Authorization': `Bearer ${this.app.authToken}`} : {}),
+                },
+                body: JSON.stringify({ content: text }),
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                this.appendRecipeMessage('error', err.error || `HTTP ${response.status}`);
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                let eventType = '';
+                let eventData = '';
+
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) {
+                        eventType = line.slice(7).trim();
+                    } else if (line.startsWith('data: ')) {
+                        eventData = line.slice(6);
+                        if (eventType && eventData) {
+                            try {
+                                const data = JSON.parse(eventData);
+                                this.handleRecipeChatEvent(eventType, data, contentEl, assistantDiv);
+                            } catch (e) {
+                                console.warn('Failed to parse recipe SSE:', eventData);
+                            }
+                        }
+                        eventType = '';
+                        eventData = '';
+                    } else if (line.trim() === '') {
+                        eventType = '';
+                        eventData = '';
+                    }
+                }
+            }
+
+            // Stream done — add "Save as Recipe" button, refresh list
+            this.addSaveAsRecipeButton(assistantDiv, text);
+            this.fetchRecipes();
+            document.dispatchEvent(new CustomEvent('wb:stream-done'));
+
+        } catch (err) {
+            console.error('Recipe chat error:', err);
+            this.appendRecipeMessage('error', 'Connection lost during streaming');
+        } finally {
+            this.recipeSending = false;
+        }
+    }
+
+    handleRecipeChatEvent(type, data, contentEl, assistantDiv) {
+        const container = document.getElementById('recipeMessages');
+
+        switch (type) {
+            case 'text_delta':
+                if (contentEl) {
+                    if (!contentEl._rawText) contentEl._rawText = '';
+                    contentEl._rawText += data.delta || '';
+                    contentEl.innerHTML = this.app.renderStreamingText(contentEl._rawText);
+                    if (container) container.scrollTop = container.scrollHeight;
+                }
+                break;
+
+            case 'tool_call_start':
+                if (assistantDiv) {
+                    this.app.renderToolCallCard(assistantDiv, data.tool_call_id, data.name, data.args);
+                    if (container) container.scrollTop = container.scrollHeight;
+                }
+                break;
+
+            case 'tool_call_result':
+                this.app.updateToolCallResult(data.tool_call_id, data.content, data.success, data.error);
+                if (container) container.scrollTop = container.scrollHeight;
+                break;
+
+            case 'error':
+                this.appendRecipeMessage('error', data.message || 'Unknown error');
+                break;
+
+            case 'done':
+                break;
+        }
+    }
+
+    addSaveAsRecipeButton(assistantDiv, userPrompt) {
+        if (!assistantDiv) return;
+        const btn = document.createElement('button');
+        btn.className = 'btn-save-recipe';
+        btn.textContent = 'Save as Recipe';
+        btn.addEventListener('click', () => {
+            this.showCreateForm({
+                prompt_template: userPrompt,
+                description: userPrompt.length > 80 ? userPrompt.slice(0, 80) + '...' : userPrompt,
+            });
+        });
+        assistantDiv.appendChild(btn);
     }
 
     // ---- Data ----
@@ -274,12 +467,13 @@ class RecipeWindow {
             html += `</div>`;
         }
 
-        // Run button
+        // Action buttons
         html += `<div class="recipe-detail__actions">`;
         html += `<button class="recipe-run-btn" id="btnRunRecipe">Run Recipe</button>`;
         html += `<button class="recipe-deploy-btn" id="btnDeployRecipe">Deploy Agent</button>`;
         html += `<button class="recipe-edit-btn" id="btnEditRecipe">Edit</button>`;
         html += `<button class="recipe-stop-btn" id="btnStopRecipe" style="display:none">Stop</button>`;
+        html += `<button class="recipe-delete-btn" id="btnDeleteRecipe">Delete</button>`;
         html += `</div>`;
 
         // Output area
@@ -293,15 +487,17 @@ class RecipeWindow {
 
         detailView.innerHTML = html;
 
-        // Bind run/stop/deploy/edit buttons
+        // Bind run/stop/deploy/edit/delete buttons
         const btnRun = document.getElementById('btnRunRecipe');
         const btnStop = document.getElementById('btnStopRecipe');
         const btnDeploy = document.getElementById('btnDeployRecipe');
         const btnEdit = document.getElementById('btnEditRecipe');
+        const btnDelete = document.getElementById('btnDeleteRecipe');
         if (btnRun) btnRun.addEventListener('click', () => this.runRecipe());
         if (btnStop) btnStop.addEventListener('click', () => this.stopRecipe());
         if (btnDeploy) btnDeploy.addEventListener('click', () => this.deployRecipe());
         if (btnEdit) btnEdit.addEventListener('click', () => this.showCreateForm(this.activeRecipe, true));
+        if (btnDelete) btnDelete.addEventListener('click', () => this.deleteRecipe());
     }
 
     buildParamField(param) {
@@ -567,6 +763,29 @@ class RecipeWindow {
     stopRecipe() {
         if (this.abortController) {
             this.abortController.abort();
+        }
+    }
+
+    async deleteRecipe() {
+        if (!this.activeRecipe) return;
+        const name = this.activeRecipe.name;
+        if (!confirm(`Delete recipe "${name}"? This cannot be undone.`)) return;
+
+        const wsId = this.app.activeWorkspaceId || 'global';
+        try {
+            const resp = await this.app.apiFetch(
+                `/api/workspaces/${wsId}/recipes/${encodeURIComponent(name)}`,
+                { method: 'DELETE' },
+            );
+            this.activeRecipe = null;
+            const emptyState = document.getElementById('recipeEmptyState');
+            const detailView = document.getElementById('recipeDetailView');
+            if (emptyState) emptyState.style.display = '';
+            if (detailView) { detailView.style.display = 'none'; detailView.innerHTML = ''; }
+            await this.fetchRecipes();
+        } catch (err) {
+            console.error('Failed to delete recipe:', err);
+            alert(`Failed to delete: ${err.message}`);
         }
     }
 
@@ -951,6 +1170,10 @@ class RecipeWindow {
             return;
         }
 
+        // Ask personal vs project
+        const scope = await this.promptSaveScope();
+        if (!scope) return; // cancelled
+
         const wsId = this.app.activeWorkspaceId || 'global';
 
         try {
@@ -963,7 +1186,7 @@ class RecipeWindow {
             const resp = await fetch(`/api/workspaces/${wsId}/recipes`, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({ yaml_content: yamlContent }),
+                body: JSON.stringify({ yaml_content: yamlContent, scope }),
             });
 
             if (!resp.ok) {
@@ -981,6 +1204,51 @@ class RecipeWindow {
             console.error('Failed to save recipe:', err);
             if (errorEl) errorEl.textContent = err.message;
         }
+    }
+
+    promptSaveScope() {
+        return new Promise((resolve) => {
+            // Remove any existing dialog
+            const existing = document.getElementById('recipeScopeDialog');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'recipeScopeDialog';
+            overlay.className = 'recipe-scope-dialog__overlay';
+            overlay.innerHTML = `
+                <div class="recipe-scope-dialog">
+                    <div class="recipe-scope-dialog__title">Save Recipe To</div>
+                    <div class="recipe-scope-dialog__options">
+                        <button class="recipe-scope-dialog__option" data-scope="personal">
+                            <span class="recipe-scope-dialog__option-icon">~</span>
+                            <span class="recipe-scope-dialog__option-label">Global</span>
+                            <span class="recipe-scope-dialog__option-desc">~/.workbench/recipes — available in all workspaces</span>
+                        </button>
+                        <button class="recipe-scope-dialog__option" data-scope="project">
+                            <span class="recipe-scope-dialog__option-icon">./</span>
+                            <span class="recipe-scope-dialog__option-label">Workspace</span>
+                            <span class="recipe-scope-dialog__option-desc">.workbench/recipes — scoped to this workspace</span>
+                        </button>
+                    </div>
+                    <button class="recipe-scope-dialog__cancel">Cancel</button>
+                </div>
+            `;
+
+            const cleanup = (value) => {
+                overlay.remove();
+                resolve(value);
+            };
+
+            overlay.querySelector('.recipe-scope-dialog__cancel').addEventListener('click', () => cleanup(null));
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) cleanup(null);
+            });
+            overlay.querySelectorAll('[data-scope]').forEach(btn => {
+                btn.addEventListener('click', () => cleanup(btn.dataset.scope));
+            });
+
+            document.body.appendChild(overlay);
+        });
     }
 
     cancelCreate() {
