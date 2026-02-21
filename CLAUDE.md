@@ -47,6 +47,15 @@ The orchestrator loop: build context → call LLM → if tool calls, validate + 
 | `workbench/tui/windows/chat_window.py` | Chat window — streaming LLM responses + tool calls |
 | `workbench/cli/app.py` | Typer CLI — entry point for `wb` command |
 
+### Recipe System Files
+
+| File | What It Does |
+|------|-------------|
+| `workbench/recipes/schema.py` | `Recipe` dataclass, `RecipeParameter`, YAML loader, validation |
+| `workbench/recipes/registry.py` | `RecipeRegistry` — discover, register/unregister, trigger matching |
+| `workbench/recipes/executor.py` | `RecipeExecutor` — runs recipes through the orchestrator |
+| `workbench/tools/recipe_tool.py` | `SaveRecipeTool` — LLM-callable tool for saving recipes |
+
 ### Web UI Files
 
 | File | What It Does |
@@ -64,6 +73,10 @@ The orchestrator loop: build context → call LLM → if tool calls, validate + 
 | `workbench/web/static/triage.css` | Three-panel grid layout for triage |
 | `workbench/web/static/agent-hud.js` | `AgentHud` class — SSE stream, resize, color-coded status, notifications |
 | `workbench/web/static/agent-hud.css` | Inline agent panel styles |
+| `workbench/web/static/context-bar.js` | Context pill bar — workspace-scoped pills injected into LLM context |
+| `workbench/web/static/recipes.js` | `RecipeWindow` class — browser, chat, editor, save scope dialog |
+| `workbench/web/static/recipes.css` | Recipe layout, editor form, scope dialog, delete button styles |
+| `workbench/web/routes/recipes.py` | Recipe CRUD, execution SSE, scope-aware save, delete endpoint |
 
 ## Conventions
 
@@ -100,7 +113,7 @@ pytest tests/ -v                    # Run all tests
 ## Web UI Conventions
 
 - **Start with `wb web`**, not `uvicorn module:app` — uses factory pattern.
-- **Window system**: Tabs switch `.window` containers via `switchWindow(name)`. Each window (Inbox, Triage, Evidence) is a `<div>` toggled by display.
+- **Window system**: Tabs switch `.window` containers via `switchWindow(name)`. Each window (Inbox, Triage, Evidence, Recipes) is a `<div>` toggled by display.
 - **Triage layout**: CSS grid — `280px 1fr` default, `280px 1fr 380px` with intake panel open.
 - **DOM reparenting**: Embedded chat uses `reparentChat(targetId)` / `returnChat()` to move `#conversationView` between windows without duplicating logic.
 - **Tool call groups**: Consecutive tool calls in a message are grouped into a collapsible summary bar.
@@ -111,6 +124,10 @@ pytest tests/ -v                    # Run all tests
 - **Settings panel**: Gear icon (top bar) or sidebar Settings button opens a tabbed overlay (General, LLM, Agents, Integrations, Policy). Ctrl+, shortcut. Escape or backdrop click to close.
 - **Sidebar overlays**: Bottom nav buttons (Knowledge, Browser, Feedback) open generic `panel-overlay` modals. All use `data-close-overlay` attribute pattern and `openOverlay(id)` / `closeOverlay(id)` methods.
 - **Sidebar resize**: Drag handle between sidebar and main content. Min 160px, max 480px. Uses `initSidebarResize()` in app.js.
+- **Recipe window**: Two-panel layout (list + detail). Own independent chat session (not reparented from Inbox). Input box uses same CSS classes as Inbox for visual consistency but separate IDs (`recipeMessageInput`, `recipeBtnSend`, `recipeModelSelect`).
+- **Recipe storage**: Global recipes in `~/.workbench/recipes/{name}/recipe.yaml`. Workspace recipes in `{workspace}/.workbench/recipes/{name}/recipe.yaml`. Save scope (global vs workspace) chosen via modal dialog.
+- **Recipe chat sessions**: Persisted to SQLite with `{ recipe_builder: true }` metadata. Own SSE streaming, independent from Inbox.
+- **Context pill bar**: Workspace-scoped pills (`context_pills` SQLite table). Auto-injected into LLM system prompt as `## Workspace Context`. Pills reload on workspace switch.
 
 ## Gotchas
 
