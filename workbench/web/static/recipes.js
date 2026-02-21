@@ -13,6 +13,7 @@ class RecipeWindow {
         this.activeRecipe = null;
         this.running = false;
         this.abortController = null;
+        this.chatPanelOpen = false;
     }
 
     activate() {
@@ -22,6 +23,9 @@ class RecipeWindow {
     deactivate() {
         if (this.running) {
             this.stopRecipe();
+        }
+        if (this.chatPanelOpen) {
+            this.closeChatPanel();
         }
     }
 
@@ -39,6 +43,82 @@ class RecipeWindow {
         const newBtn = document.getElementById('btnNewRecipe');
         if (newBtn) {
             newBtn.addEventListener('click', () => this.showCreateForm());
+        }
+
+        const chatBtn = document.getElementById('btnRecipeChat');
+        if (chatBtn) {
+            chatBtn.addEventListener('click', () => {
+                if (this.chatPanelOpen) {
+                    this.closeChatPanel();
+                } else {
+                    this.showChatPanel();
+                }
+            });
+        }
+
+        const chatCloseBtn = document.getElementById('btnRecipeChatClose');
+        if (chatCloseBtn) {
+            chatCloseBtn.addEventListener('click', () => this.closeChatPanel());
+        }
+    }
+
+    // ---- Chat Panel ----
+
+    async showChatPanel() {
+        const panel = document.getElementById('recipeChatPanel');
+        const body = document.getElementById('recipeBody');
+        const btn = document.getElementById('btnRecipeChat');
+
+        if (panel) panel.style.display = 'flex';
+        if (body) body.classList.add('recipe-window__body--chat-open');
+        if (btn) btn.classList.add('recipe-window__chat-btn--active');
+
+        // Reparent the global conversation view into the recipe chat container
+        this.app.reparentChat('recipeChatContainer');
+
+        // Create a fresh session for recipe building
+        const wsId = this.app.activeWorkspaceId || 'global';
+        try {
+            const data = await this.app.apiFetch('/api/sessions', {
+                method: 'POST',
+                body: JSON.stringify({
+                    metadata: { workspace: wsId, recipe_builder: true },
+                }),
+            });
+            if (data.session_id) {
+                await this.app.selectSession(data.session_id);
+            }
+        } catch (e) {
+            console.warn('Failed to create recipe builder session:', e);
+        }
+
+        const conv = document.getElementById('conversationView');
+        if (conv) conv.style.display = 'flex';
+
+        this.chatPanelOpen = true;
+
+        // Auto-refresh recipe list when a stream completes (model may have saved a recipe)
+        this._streamDoneHandler = () => {
+            if (this.chatPanelOpen) this.fetchRecipes();
+        };
+        document.addEventListener('wb:stream-done', this._streamDoneHandler);
+    }
+
+    closeChatPanel() {
+        const panel = document.getElementById('recipeChatPanel');
+        const body = document.getElementById('recipeBody');
+        const btn = document.getElementById('btnRecipeChat');
+
+        if (panel) panel.style.display = 'none';
+        if (body) body.classList.remove('recipe-window__body--chat-open');
+        if (btn) btn.classList.remove('recipe-window__chat-btn--active');
+
+        this.app.returnChat();
+        this.chatPanelOpen = false;
+
+        if (this._streamDoneHandler) {
+            document.removeEventListener('wb:stream-done', this._streamDoneHandler);
+            this._streamDoneHandler = null;
         }
     }
 
