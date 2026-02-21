@@ -11,7 +11,7 @@ Portable support and diagnostics workbench runtime. No employer IP, no vendor lo
 
 Adapters (SSH, K8s, vendor APIs, ticketing systems) plug in later via entry points in a separate repo.
 
-**Web UI** — Operations Center with tabbed windows (Inbox, Triage, Evidence), an inline agent activity panel, pluggable case/ticket integration, and embedded investigation chat.
+**Web UI** — Operations Center with tabbed windows (Inbox, Triage, Evidence, Recipes), an inline agent activity panel, pluggable case/ticket integration, embedded investigation chat, and a recipe system for reusable prompt workflows.
 
 ## Quickstart
 
@@ -90,7 +90,7 @@ Inside chat you get inline commands: `/tools`, `/history`, `/switch <provider>`,
 wb web --host 0.0.0.0 --port 8080    # Operations Center
 ```
 
-The web UI runs a FastAPI server with SSE streaming and serves a single-page app at the root. Tabs: **Inbox** (chat, conversations, workspace browser), **Triage** (investigation management), **Evidence** (audit trail — coming soon). An inline resizable agent activity panel shows running agents with color-coded status. Sidebar bottom nav provides access to **Knowledge**, **Browser**, **Settings**, and **Feedback** overlays. The settings panel includes tabbed navigation for General, LLM/Providers, Agents, Integrations, and Policy & Security. Panels are resizable via drag handles.
+The web UI runs a FastAPI server with SSE streaming and serves a single-page app at the root. Tabs: **Inbox** (chat, conversations, workspace browser), **Triage** (investigation management), **Evidence** (audit trail — coming soon), **Recipes** (reusable prompt workflows). An inline resizable agent activity panel shows running agents with color-coded status. A context pill bar provides workspace-scoped context injection into LLM prompts. Sidebar bottom nav provides access to **Knowledge**, **Browser**, **Settings**, and **Feedback** overlays. The settings panel includes tabbed navigation for General, LLM/Providers, Agents, Integrations, and Policy & Security. Panels are resizable via drag handles.
 
 ## Architecture
 
@@ -158,6 +158,10 @@ workbench-core/
 │   │   ├── system.py             # System prompt builder
 │   │   ├── tool_discipline.py    # Tool usage instructions
 │   │   └── conventions.py        # Output formatting conventions
+│   ├── recipes/
+│   │   ├── schema.py             # Recipe dataclass, YAML loader, validation
+│   │   ├── registry.py           # Discovery, register/unregister, trigger matching
+│   │   └── executor.py           # Recipe execution via orchestrator
 │   ├── tui/
 │   │   ├── app.py                # Textual app — windowed desktop with hotkeys
 │   │   ├── window.py             # Draggable window widget (min/max/restore)
@@ -177,7 +181,8 @@ workbench-core/
 │   │   ├── integrations.json.example  # Pluggable case source config template
 │   │   ├── routes/
 │   │   │   ├── agents.py         # Agent SSE stream + status endpoints
-│   │   │   └── investigations.py # Investigation CRUD, case fetch, integrations
+│   │   │   ├── investigations.py # Investigation CRUD, case fetch, integrations
+│   │   │   └── recipes.py        # Recipe CRUD, execution SSE, scope-aware save
 │   │   └── static/
 │   │       ├── index.html        # Operations Center SPA — tabbed windows
 │   │       ├── index.css         # Global styles, layout, tool call cards
@@ -186,6 +191,9 @@ workbench-core/
 │   │       ├── triage.css        # Triage three-panel layout styles
 │   │       ├── agent-hud.js      # Agent activity panel — SSE, resize, notifications
 │   │       ├── agent-hud.css     # Agent panel styles, color-coded status
+│   │       ├── context-bar.js    # Context pill bar — workspace-scoped LLM context
+│   │       ├── recipes.js        # Recipe window — browser, chat, editor, CRUD
+│   │       ├── recipes.css       # Recipe layout, editor, scope dialog styles
 │   │       └── evidence.css      # Evidence window styles (stub)
 │   └── cli/
 │       ├── app.py                # Typer CLI (chat, sessions, tools, config, tui, web)
@@ -239,6 +247,9 @@ workbench-core/
 | `wb config validate` | Validate config and show issues |
 | `wb web` | **Web UI** — Operations Center (FastAPI + SSE) |
 | `wb web --host 0.0.0.0 --port 8080` | Web UI bound to all interfaces |
+| `wb recipe list` | List available recipes |
+| `wb recipe run NAME` | Run a recipe by name |
+| `wb recipe show NAME` | Show recipe details |
 | `wb version` | Show version |
 
 ## TUI
@@ -328,6 +339,7 @@ pip install -e ".[dev]"         # pytest, ruff, coverage
 ## What's Next
 
 - **Evidence Window** -- Tool call inspection, audit trail, artifact viewer
+- **Recipe Repository** -- Remote registry for publishing and discovering community recipes
 - **Agent System** -- Multi-agent orchestration with config, task queues, and monitoring
 - **VS Code Extension** -- `wb serve` + chat panel
 - **Adapter Pack** -- Separate repo with vendor backends (K8s, vendor APIs, ticketing) via entry points
