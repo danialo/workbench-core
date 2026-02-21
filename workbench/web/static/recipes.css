@@ -904,81 +904,13 @@
     background: var(--accent-dim);
 }
 
-
 /* ================================================================
-   RECIPE CHAT PANEL
+   RECIPE INPUT BAR (matches inbox chat input)
    ================================================================ */
 
-.recipe-window__chat-btn {
-    padding: 5px 12px;
-    font-size: 12px;
-    font-weight: 600;
-    background: var(--bg-input);
-    border: 1px solid var(--border-medium);
-    border-radius: 6px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.15s;
-}
-
-.recipe-window__chat-btn:hover {
-    border-color: var(--accent-primary);
-    color: var(--accent-primary);
-}
-
-.recipe-window__chat-btn--active {
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-    border-color: var(--accent-primary);
-}
-
-/* Grid layout with chat open */
-.recipe-window__body--chat-open {
-    grid-template-columns: 280px 1fr 380px;
-}
-
-.recipe-window__chat-panel {
-    display: flex;
-    flex-direction: column;
-    border-left: 1px solid var(--border-primary);
-    background: var(--bg-secondary);
-    overflow: hidden;
-    animation: slideInRight 0.2s ease-out;
-}
-
-.recipe-window__chat-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border-primary);
+.recipe-window > .conversation-view__input-area {
     flex-shrink: 0;
+    padding: 8px 20px 16px;
 }
 
-.recipe-window__chat-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
 
-.recipe-window__chat-close {
-    padding: 4px 8px;
-    font-size: 14px;
-    background: none;
-    border: none;
-    color: var(--text-tertiary);
-    cursor: pointer;
-    border-radius: 4px;
-}
-
-.recipe-window__chat-close:hover {
-    background: var(--bg-surface-hover);
-    color: var(--text-primary);
-}
-
-.recipe-window__chat-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}

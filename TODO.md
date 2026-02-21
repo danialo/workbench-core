@@ -23,8 +23,9 @@
 - [ ] Inbox badge count updates in real-time
 - [ ] Verify agent completions land in inbox automatically
 - [ ] Clicking inbox item opens the completed conversation
-- [ ] Delete/archive conversations
-- [ ] Playground: flag sessions as ephemeral, auto-cleanup, "Move to Workspace" action
+- [ ] Delete conversations (trash icon or right-click menu)
+- [ ] Pin conversations (keep at top of sidebar list)
+- [ ] **Playground ephemeral sessions** — playground chats are temporary by design. Sessions should only persist for the lifetime of the chat window and reset on reload. No auto-save to SQLite. User must explicitly "Save to Workspace" to keep a conversation. This is the core idea: temporary workflows, temporary chats, scratch space. "Move to Workspace" action promotes an ephemeral session to persistent storage
 - [ ] **Memory panel** — UI for viewing/editing per-workspace memory entries (SQLite + file-based). Show agent-written notes, CLAUDE.md, README.md. Edit/delete entries inline. Backend is wired (`memory_read`/`memory_write` tools + `build_memory_context()` injection)
 - [ ] Workspace settings/config editor
 
