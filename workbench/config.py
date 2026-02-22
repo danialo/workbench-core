@@ -7,12 +7,16 @@ Precedence (lowest to highest):
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 from dataclasses import dataclass, field, fields, asdict
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +182,62 @@ _ENV_MAP: dict[str, tuple[str, type]] = {
 
 
 # ---------------------------------------------------------------------------
+# Environment variable loading
+# ---------------------------------------------------------------------------
+
+_EXPORT_RE = re.compile(
+    r"""^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=["']?([^"'\n]*)["']?\s*$"""
+)
+
+
+def load_env_files() -> int:
+    """
+    Load environment variables from common sources into ``os.environ``.
+
+    Sources checked (in order, later values win):
+      1. ``~/.bashrc`` — export lines only
+      2. ``~/.zshrc``  — export lines only
+      3. ``.env``      — via python-dotenv (project root)
+      4. ``~/.env``    — via python-dotenv (home dir)
+
+    Only sets vars that are NOT already in ``os.environ`` (no override).
+    Returns the number of new variables loaded.
+    """
+    loaded = 0
+
+    # --- Shell profile exports (~/.bashrc, ~/.zshrc) ---
+    for shell_rc in [Path.home() / ".bashrc", Path.home() / ".zshrc"]:
+        if not shell_rc.is_file():
+            continue
+        try:
+            with shell_rc.open("r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    m = _EXPORT_RE.match(line)
+                    if m:
+                        key, val = m.group(1), m.group(2)
+                        if key not in os.environ:
+                            os.environ[key] = val
+                            loaded += 1
+        except OSError:
+            pass
+
+    # --- .env files (python-dotenv, does NOT override existing) ---
+    try:
+        from dotenv import load_dotenv
+        for env_path in [Path(".env"), Path.home() / ".env"]:
+            if env_path.is_file():
+                count_before = len(os.environ)
+                load_dotenv(env_path, override=False)
+                loaded += len(os.environ) - count_before
+    except ImportError:
+        pass
+
+    if loaded:
+        logger.debug("Loaded %d env vars from shell profiles / .env files", loaded)
+    return loaded
+
+
+# ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
 
@@ -198,6 +258,9 @@ def load_config(
     profile : name of a profile to apply from the config file
     cli_overrides : dict of dotpath -> value CLI flag overrides
     """
+    # --- 0. Load env vars from .env / shell profiles ---
+    load_env_files()
+
     raw: dict[str, Any] = {}
 
     # --- 1. Config file ---

@@ -938,7 +938,7 @@ def create_app(
             "active": llm_router.active_name,
         })
 
-    @app.post("/api/providers/{name}/activate")
+    @app.post("/api/providers/{name:path}/activate")
     async def activate_provider(name: str, request: Request):
         """Switch the active LLM provider."""
         if llm_router is None:
@@ -950,6 +950,35 @@ def create_app(
             return JSONResponse(
                 {"error": f"Unknown provider: {name}", "available": llm_router.provider_names},
                 status_code=404,
+            )
+
+    @app.get("/api/ollama/models")
+    async def list_ollama_models(base_url: str = "http://localhost:11434"):
+        """List locally available Ollama models."""
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{base_url}/api/tags")
+                resp.raise_for_status()
+                data = resp.json()
+                models = [
+                    {
+                        "name": m["name"],
+                        "size": m.get("size", 0),
+                        "modified": m.get("modified_at", ""),
+                    }
+                    for m in data.get("models", [])
+                ]
+                return JSONResponse({"models": models})
+        except httpx.ConnectError:
+            return JSONResponse(
+                {"error": "Cannot connect to Ollama. Is it running?", "models": []},
+                status_code=503,
+            )
+        except Exception as e:
+            return JSONResponse(
+                {"error": str(e), "models": []},
+                status_code=502,
             )
 
     def _find_config_path() -> Path | None:
@@ -1011,7 +1040,7 @@ def create_app(
             return JSONResponse({"saved": True, "name": result})
         return JSONResponse({"error": "Failed to create provider (check API key env var)"}, status_code=400)
 
-    @app.put("/api/providers/{name}")
+    @app.put("/api/providers/{name:path}")
     async def update_provider(name: str, request: Request):
         """Update an existing provider config."""
         import yaml
@@ -1036,7 +1065,7 @@ def create_app(
             return JSONResponse({"saved": True, "name": result})
         return JSONResponse({"error": "Failed to update provider"}, status_code=400)
 
-    @app.delete("/api/providers/{name}")
+    @app.delete("/api/providers/{name:path}")
     async def delete_provider(name: str, request: Request):
         """Remove a provider from config and router."""
         import yaml

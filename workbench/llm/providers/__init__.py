@@ -21,6 +21,11 @@ def create_provider(cfg: LLMProviderConfig) -> Provider | None:
     Factory: build a Provider from a LLMProviderConfig.
 
     Returns None if the provider can't be created (missing API key, etc).
+
+    Supported types:
+      - ``"openai"`` — any OpenAI-compatible API (default)
+      - ``"ollama"`` — local Ollama instance (no auth, default port 11434)
+      - ``"claude-code"`` — Claude Code CLI subprocess (stub)
     """
     provider_type = getattr(cfg, "type", "openai")
 
@@ -32,9 +37,20 @@ def create_provider(cfg: LLMProviderConfig) -> Provider | None:
             timeout=float(cfg.timeout_seconds),
         )
 
-    # Default: OpenAI-compatible
     from workbench.llm.providers.openai_compat import OpenAICompatProvider
 
+    if provider_type == "ollama":
+        # Ollama: OpenAI-compatible, no auth needed
+        return OpenAICompatProvider(
+            url=cfg.api_base or "http://localhost:11434/v1",
+            model=cfg.model or "llama3",
+            api_key="",
+            timeout=float(cfg.timeout_seconds),
+            max_context=cfg.max_context_tokens,
+            max_output=cfg.max_output_tokens,
+        )
+
+    # Default: OpenAI-compatible (requires API key)
     api_key = ""
     if cfg.api_key_env:
         api_key = os.environ.get(cfg.api_key_env, "")

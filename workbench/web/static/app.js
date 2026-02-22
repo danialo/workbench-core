@@ -511,6 +511,7 @@ class AgentManagerApp {
                     <label for="providerFormType">Type</label>
                     <select id="providerFormType">
                         <option value="openai" ${prefill.type === 'openai' ? 'selected' : ''}>OpenAI Compatible</option>
+                        <option value="ollama" ${prefill.type === 'ollama' ? 'selected' : ''}>Ollama (Local)</option>
                         <option value="claude-code" ${prefill.type === 'claude-code' ? 'selected' : ''}>Claude Code CLI</option>
                     </select>
                 </div>
@@ -548,6 +549,22 @@ class AgentManagerApp {
         };
         document.getElementById('providerFormSave').onclick = () => {
             this.saveProvider(editName);
+        };
+
+        // Auto-fill defaults when switching type
+        const typeSelect = document.getElementById('providerFormType');
+        typeSelect.onchange = () => {
+            const t = typeSelect.value;
+            const baseEl = document.getElementById('providerFormApiBase');
+            const keyEl = document.getElementById('providerFormApiKeyEnv');
+            if (t === 'ollama') {
+                if (!baseEl.value) baseEl.value = 'http://localhost:11434/v1';
+                keyEl.value = '';
+                keyEl.placeholder = 'Not needed for Ollama';
+            } else if (t === 'openai') {
+                if (baseEl.value === 'http://localhost:11434/v1') baseEl.value = '';
+                keyEl.placeholder = 'e.g. OPENAI_API_KEY, OPEN_ROUTER_API_KEY';
+            }
         };
     }
 
