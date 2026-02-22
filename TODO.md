@@ -91,6 +91,8 @@
 - [x] Color-coded agent status (green=running, yellow=waiting, red=error, gray=completed)
 - [x] Resize handle with drag support
 - [x] Inbox notifications for agents waiting on user input
+- [x] Agent panel user input — click to select agent, textarea + send, Enter to submit
+- [x] Copy button on all chat messages (hover-reveal, raw text copy)
 
 ### Remaining
 
@@ -111,19 +113,19 @@ Recipes are the execution model. Every interaction is recipe-driven:
 4. User can **"Save as Recipe"** to persist it → becomes discoverable and reusable
 5. Next similar request matches the persistent recipe instead of building from scratch
 
-- [ ] **Recipe definition schema** — `recipe.yaml`: name, description, trigger (prompt pattern or explicit invocation), prompt template, tools[] (required tools), parameters (user-configurable inputs), output format, version
+- [x] **Recipe definition schema** — `recipe.yaml`: name, description, trigger (prompt pattern or explicit invocation), prompt template, tools[] (required tools), parameters (user-configurable inputs), output format, version
 - [ ] **Ephemeral recipe construction** — orchestrator pre-step that builds a structured recipe from raw user input before execution. Always runs. This IS the prompt refinement layer
-- [ ] **Recipe executor** — takes a recipe (ephemeral or persistent) and runs it through the orchestrator with the specified tools and prompt template
-- [ ] **Recipe registry** — discover/list/match recipes in a workspace. Checks `.workbench/recipes/` for persistent recipes that match the user's intent before building ephemeral
+- [x] **Recipe executor** — takes a recipe (ephemeral or persistent) and runs it through the orchestrator with the specified tools and prompt template
+- [x] **Recipe registry** — discover/list/match recipes in a workspace. Checks `.workbench/recipes/` for persistent recipes that match the user's intent before building ephemeral
 - [ ] **Recipe manifest / index** — workspace-level index of available recipes with descriptions, so the LLM can discover and select the right recipe for a task
-- [ ] **"Save as Recipe" action** — after any execution, offer to persist the ephemeral recipe. Writes `recipe.yaml` + `prompt.md` to `.workbench/recipes/<name>/`, updates index
+- [x] **"Save as Recipe" action** — after any execution, offer to persist the ephemeral recipe. Writes `recipe.yaml` + `prompt.md` to `.workbench/recipes/<name>/`, updates index
 - [ ] **Recipe builder meta-recipe** — ships with every workspace. A persistent recipe whose prompt teaches the LLM the recipe schema, directory conventions, and how to create + deploy new recipes
 - [ ] **Recipe packaging** — recipes as self-contained units (prompt + tools + context) that can be shared, imported, exported
 
 #### Recipe UI & Remote Repository
-- [ ] **Recipe browser panel** — browse installed recipes per workspace. Card view with name, description, trigger, tool chain. Enable/disable per workspace
+- [x] **Recipe browser panel** — browse installed recipes per workspace. Card view with name, description, trigger, tool chain. Enable/disable per workspace
 - [ ] **Recipe detail view** — read-only view of recipe.yaml + prompt.md. "Edit in chat" button opens a conversation with recipe-builder to modify it
-- [ ] **"Save as Recipe" button** — appears after every agent response. Persists the ephemeral recipe that was just executed
+- [x] **"Save as Recipe" button** — appears after every agent response. Persists the ephemeral recipe that was just executed
 - [ ] **Remote recipe repository** — hosted registry (GitHub repo or custom API) for publishing and discovering community recipes
 - [ ] **Recipe install from remote** — `wb recipe install <name>` CLI + API endpoint. Downloads recipe directory into workspace `.workbench/recipes/`
 - [ ] **Recipe publish to remote** — `wb recipe publish <name>` packages and pushes a local recipe to the remote registry
@@ -186,6 +188,25 @@ Recipes are the execution model. Every interaction is recipe-driven:
 - [ ] **Context snapshots** — save current pill state as a named snapshot, restore later
 - [ ] **Workspace defaults** — when creating a new workspace, optionally seed it with a set of default pills from a template
 
+## Settings Panel
+
+### Done
+- [x] Tabbed overlay (General, LLM, Agents, Integrations, Policy) with Ctrl+, shortcut
+- [x] **LLM / Providers tab** — full CRUD: add, edit, delete providers with persistence to `workbench.yaml`
+- [x] Provider hot-reload into router (no restart needed)
+- [x] Switch active provider from dropdown
+- [x] Provider types: OpenAI-compatible, Ollama (no auth, localhost defaults), Claude Code CLI (stub)
+- [x] Form validation with error messages
+- [x] Env var loading from `~/.bashrc`, `~/.zshrc`, `.env`, `~/.env`
+- [x] Slash-safe routes for provider names with `/`
+- [x] Ollama model listing endpoint
+
+### Remaining
+- [ ] **General tab** — theme selection, layout preferences, workspace defaults
+- [ ] **Agents tab** — agent registry, default configs, skill assignments, risk policies
+- [ ] **Integrations tab** — case sources (Jira, ServiceNow, Glean), API keys, webhook config
+- [ ] **Policy & Security tab** — max risk level, blocked/allowed patterns, confirmation rules, audit settings
+
 ## Global / Cross-Window
 
 ### Layout & Navigation
@@ -222,6 +243,7 @@ Recipes are the execution model. Every interaction is recipe-driven:
 - [ ] **Scaffold API** — POST `/api/workspaces` already creates the workspace record; extend to also create the directory structure if `path` is set
 
 ### Infrastructure
+- [ ] **MCP (Model Context Protocol) server** — expose workbench tools, sessions, and workspaces via MCP so external clients (Claude Desktop, VS Code extensions, other agents) can connect and use them natively
 - [ ] Reverse tunnel for remote access
 - [ ] Agent collaboration/communication system
 - [ ] Shared context between agents

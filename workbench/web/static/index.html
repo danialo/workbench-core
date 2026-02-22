@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/static/triage.css">
     <link rel="stylesheet" href="/static/evidence.css">
     <link rel="stylesheet" href="/static/recipes.css">
+    <link rel="stylesheet" href="/static/editor.css">
 </head>
 
 <body>
@@ -89,6 +90,9 @@
         </button>
         <button class="window-tab" data-window="recipes" id="tabRecipes">
             Recipes
+        </button>
+        <button class="window-tab" data-window="editor" id="tabEditor">
+            Editor
         </button>
     </div>
 
@@ -368,6 +372,35 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Window: Editor -->
+            <div class="window" id="windowEditor" data-window="editor" style="display:none">
+                <div class="editor-window">
+                    <div class="editor-window__sidebar" id="editorSidebar">
+                        <div class="editor-window__sidebar-header">
+                            <span class="editor-window__sidebar-title">Files</span>
+                            <button class="editor-window__sidebar-btn" id="editorBtnHidden" title="Toggle hidden files">.*</button>
+                            <button class="editor-window__sidebar-btn" id="editorBtnUp" title="Go up">↑</button>
+                        </div>
+                        <div class="editor-window__file-tree" id="editorFileTree"></div>
+                    </div>
+                    <div class="editor-window__resize-handle" id="editorResizeHandle"></div>
+                    <div class="editor-window__main">
+                        <div class="editor-window__tabs" id="editorTabs"></div>
+                        <div class="editor-window__editor-area">
+                            <div class="editor-window__ace" id="editorAce"></div>
+                            <div class="editor-window__preview" id="editorPreview" style="display:none">
+                                <div class="editor-window__preview-content" id="editorPreviewContent"></div>
+                            </div>
+                        </div>
+                        <div class="editor-window__status" id="editorStatus">
+                            <span class="editor-window__status-file" id="editorStatusFile">No file open</span>
+                            <span class="editor-window__status-lang" id="editorStatusLang"></span>
+                            <span class="editor-window__status-pos" id="editorStatusPos"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
 
         <!-- AGENT ACTIVITY PANEL (inline resizable) -->
@@ -490,10 +523,13 @@
         </div>
     </div>
 
+    <script src="/static/vendor/ace/ace.js"></script>
+    <script src="/static/vendor/markdown-it.min.js"></script>
     <script src="/static/agent-hud.js"></script>
     <script src="/static/context-bar.js"></script>
     <script src="/static/triage.js"></script>
     <script src="/static/recipes.js"></script>
+    <script src="/static/editor.js"></script>
     <script src="/static/app.js"></script>
 </body>
 

@@ -25,11 +25,15 @@ class AgentManagerApp {
         // Multi-window state
         this.activeWindow = 'inbox';
 
+        // markdown-it for full markdown rendering (used in final/done renders)
+        this.md = typeof markdownit !== 'undefined' ? markdownit({ html: true, linkify: true, typographer: true }) : null;
+
         // Sub-modules (loaded from separate files)
         this.agentHud = new AgentHud(this);
         this.contextBar = new ContextBar(this);
         this.triageWindow = new TriageWindow(this);
         this.recipeWindow = new RecipeWindow(this);
+        this.editorWindow = new EditorWindow(this);
 
         // Track which workspaces are expanded/closed in sidebar
         this.expandedWorkspaces = new Set();
@@ -141,7 +145,7 @@ class AgentManagerApp {
         });
         this.elMenuNewEditor.addEventListener('click', () => {
             this.closeFileMenu();
-            console.log('New Editor (not yet implemented)');
+            this.openEditor();
         });
         this.elMenuOpenWorkspace.addEventListener('click', () => {
             this.closeFileMenu();
@@ -171,7 +175,7 @@ class AgentManagerApp {
                 } else if (e.key === 'e' || e.key === 'E') {
                     e.preventDefault();
                     this.closeFileMenu();
-                    console.log('New Editor (not yet implemented)');
+                    this.openEditor();
                 } else if (e.key === 'o' || e.key === 'O') {
                     e.preventDefault();
                     this.closeFileMenu();
@@ -282,6 +286,10 @@ class AgentManagerApp {
         }
         if (this.elOpenWorkspace) {
             this.elOpenWorkspace.addEventListener('click', () => this.openNewWorkspaceDialog());
+        }
+        const btnEditor = document.getElementById('btnOpenEditor');
+        if (btnEditor) {
+            btnEditor.addEventListener('click', () => this.openEditor());
         }
 
         // Dialog
@@ -1004,7 +1012,7 @@ class AgentManagerApp {
             case 'done':
                 // Streaming complete — do full markdown render on final text
                 if (contentEl._rawText) {
-                    contentEl.innerHTML = this.renderMarkdownLite(contentEl._rawText);
+                    contentEl.innerHTML = this.renderMarkdown(contentEl._rawText);
                 }
                 // Inject "Save as Recipe" if tool calls were made
                 const toolGroup = assistantDiv.querySelector('.tool-call-group');
@@ -1334,7 +1342,7 @@ class AgentManagerApp {
                 case 'assistant_message':
                     currentAssistantDiv = this.createAssistantMessageContainer();
                     const content = currentAssistantDiv.querySelector('.message__content');
-                    content.innerHTML = this.renderMarkdownLite(payload.content || payload.text || '');
+                    content.innerHTML = this.renderMarkdown(payload.content || payload.text || '');
                     break;
 
                 case 'tool_call_request':
@@ -1751,6 +1759,14 @@ class AgentManagerApp {
         }).join('');
     }
 
+    renderMarkdown(text) {
+        // Full markdown render via markdown-it (used for final/done renders)
+        if (this.md) {
+            return this.md.render(text);
+        }
+        return this.renderMarkdownLite(text);
+    }
+
     renderMarkdownLite(text) {
         // Lightweight markdown renderer — no dependencies
         // Handles: code blocks, inline code, headers, bold, italic, lists, links, line breaks
@@ -1893,11 +1909,18 @@ class AgentManagerApp {
         } else {
             this.recipeWindow.deactivate();
         }
+        if (windowName === 'editor') {
+            this.editorWindow.init();
+        }
 
         // Reset inbox to list view when switching to it
         if (windowName === 'inbox') {
             this.switchView('inbox');
         }
+    }
+
+    openEditor() {
+        this.switchWindow('editor');
     }
 
     promoteToRecipe(assistantDiv) {

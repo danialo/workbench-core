@@ -648,6 +648,105 @@ def create_app(
         except Exception as e:
             raise HTTPException(400, f"Failed to create folder: {e}")
 
+    # ---- File API (editor) ----
+
+    _EXT_LANG = {
+        ".py": "python", ".js": "javascript", ".ts": "typescript",
+        ".json": "json", ".yaml": "yaml", ".yml": "yaml",
+        ".md": "markdown", ".markdown": "markdown",
+        ".css": "css", ".html": "html", ".htm": "html",
+        ".sh": "sh", ".bash": "sh", ".zsh": "sh",
+        ".toml": "toml", ".txt": "text", ".log": "text",
+        ".xml": "xml", ".sql": "sql", ".rs": "rust",
+        ".go": "golang", ".rb": "ruby", ".java": "java",
+    }
+
+    @app.get("/api/files")
+    async def list_files(
+        path: str = Query("~", description="Directory to list"),
+        show_hidden: bool = Query(False, description="Include hidden (dot) files"),
+    ):
+        """List directory contents including files."""
+        import os
+        try:
+            resolved = Path(path).expanduser().resolve()
+            if not resolved.is_dir():
+                raise HTTPException(400, f"Not a directory: {path}")
+
+            entries = []
+            try:
+                for entry in sorted(resolved.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
+                    if not show_hidden and entry.name.startswith('.'):
+                        continue
+                    stat = entry.stat()
+                    entries.append({
+                        "name": entry.name,
+                        "path": str(entry),
+                        "type": "dir" if entry.is_dir() else "file",
+                        "size": stat.st_size if entry.is_file() else 0,
+                        "modified": stat.st_mtime,
+                    })
+            except PermissionError:
+                pass
+
+            parent = str(resolved.parent)
+            return {
+                "path": str(resolved),
+                "parent": parent if parent != str(resolved) else None,
+                "entries": entries,
+            }
+        except Exception as e:
+            raise HTTPException(400, f"List error: {e}")
+
+    @app.get("/api/files/read")
+    async def read_file(path: str = Query(..., description="File path to read")):
+        """Read file contents. Max 2MB."""
+        try:
+            resolved = Path(path).expanduser().resolve()
+            if not resolved.is_file():
+                raise HTTPException(404, f"Not a file: {path}")
+            if resolved.stat().st_size > 2 * 1024 * 1024:
+                raise HTTPException(413, "File too large (max 2MB)")
+
+            content = resolved.read_text(encoding="utf-8", errors="replace")
+            ext = resolved.suffix.lower()
+            return {
+                "path": str(resolved),
+                "content": content,
+                "size": len(content),
+                "language": _EXT_LANG.get(ext, "text"),
+                "modified": resolved.stat().st_mtime,
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(400, f"Read error: {e}")
+
+    @app.put("/api/files/write")
+    async def write_file(request: Request):
+        """Save file contents. Requires CSRF."""
+        body = await request.json()
+        file_path = body.get("path", "")
+        content = body.get("content", "")
+
+        if not file_path:
+            raise HTTPException(400, "path is required")
+
+        try:
+            resolved = Path(file_path).expanduser().resolve()
+            # Safety: don't write outside home
+            home = Path.home().resolve()
+            if not str(resolved).startswith(str(home)):
+                raise HTTPException(403, "Cannot write outside home directory")
+
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved.write_text(content, encoding="utf-8")
+            return {"path": str(resolved), "size": len(content)}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(400, f"Write error: {e}")
+
     # ---- Inbox ----
 
     @app.get("/api/inbox")
