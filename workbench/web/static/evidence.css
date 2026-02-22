@@ -508,3 +508,45 @@
     color: var(--text-tertiary, #666);
     font-style: italic;
 }
+
+/* ---- M6: Agent chip on assertion cards ---- */
+.inv-assertion-card__agent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent-primary, #f0b429);
+    background: rgba(240, 180, 41, 0.12);
+    border: 1px solid rgba(240, 180, 41, 0.25);
+    border-radius: 10px;
+    padding: 1px 6px;
+}
+
+/* ---- M6: Review badge on investigation list cards ---- */
+.investigation-card__review-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--status-error, #e05c5c);
+    border-radius: 9px;
+    margin-left: 4px;
+}
+
+/* ---- M6: "Investigate with Agent" button variant ---- */
+.investigation-detail__chat-btn--agent {
+    background: rgba(240, 180, 41, 0.1);
+    border-color: rgba(240, 180, 41, 0.3);
+    color: var(--accent-primary, #f0b429);
+    margin-top: 6px;
+}
+.investigation-detail__chat-btn--agent:hover {
+    background: rgba(240, 180, 41, 0.2);
+    border-color: rgba(240, 180, 41, 0.5);
+}

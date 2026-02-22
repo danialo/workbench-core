@@ -18,6 +18,7 @@ class TriageWindow {
         this.activeInvestigation = null;
         this.centerView = 'empty'; // 'empty' | 'detail'
         this.chatPanelOpen = false;
+        this._pendingReviewCounts = {}; // investigationId -> number of submitted assertions
     }
 
     activate() {
@@ -109,6 +110,7 @@ class TriageWindow {
             const age = this.timeAgo(inv.created_at);
             const systems = Array.isArray(inv.affected_systems) ? inv.affected_systems.join(', ') : '';
             const hasSession = !!inv.session_id;
+            const pendingCount = this._pendingReviewCounts[inv.investigation_id] || 0;
 
             card.innerHTML = `
                 <span class="investigation-card__severity">${this.app.escapeHtml(inv.severity)}</span>
@@ -120,6 +122,7 @@ class TriageWindow {
                     <span class="agent-hud__dot agent-hud__dot--${inv.status === 'resolved' ? 'completed' : 'running'}"></span>
                     <span>${this.app.escapeHtml(inv.status)}</span>
                     ${hasSession ? '<span class="investigation-card__chat-icon" title="Has conversation">💬</span>' : ''}
+                    ${pendingCount > 0 ? `<span class="investigation-card__review-badge" title="${pendingCount} assertion${pendingCount !== 1 ? 's' : ''} pending review">${pendingCount}</span>` : ''}
                 </div>
             `;
 
@@ -231,6 +234,9 @@ class TriageWindow {
                         + Start Investigation Chat
                     </button>
                 `}
+                <button class="investigation-detail__chat-btn investigation-detail__chat-btn--agent" id="btnInvestigateAgent">
+                    🤖 Investigate with Agent
+                </button>
             </div>
             <div class="investigation-detail__actions">
                 <button class="investigation-detail__action-btn investigation-detail__action-btn--escalate" id="btnEscalate">Escalate</button>
@@ -254,6 +260,10 @@ class TriageWindow {
         const btnStart = detail.querySelector('#btnStartChat');
         if (btnStart) {
             btnStart.addEventListener('click', () => this.startChat(inv));
+        }
+        const btnAgent = detail.querySelector('#btnInvestigateAgent');
+        if (btnAgent) {
+            btnAgent.addEventListener('click', () => this.startAgentInvestigation(inv));
         }
 
         // Wire action buttons
@@ -344,6 +354,11 @@ class TriageWindow {
                 } catch (_) { /* skip bad doc */ }
             }
 
+            // Track pending review count and refresh list badge
+            const submittedCount = allAssertions.filter(a => a._effective_state === 'submitted').length;
+            this._pendingReviewCounts[investigationId] = submittedCount;
+            this.renderList();
+
             if (allAssertions.length === 0) {
                 container.innerHTML = '<span class="inv-assertions__empty">No assertions yet.</span>';
             } else {
@@ -376,11 +391,13 @@ class TriageWindow {
         const effectiveState = assertion._effective_state || 'draft';
         const hasEvidence = evidenceCount > 0;
         const isDecided = (effectiveState === 'approved' || effectiveState === 'rejected');
+        const isAgentAuthored = (assertion.created_by || '').startsWith('agent:');
 
         card.innerHTML = `
             <div class="inv-assertion-card__claim">${this.app.escapeHtml(assertion.claim || '')}</div>
             <div class="inv-assertion-card__footer">
                 <span class="inv-assertion-card__state-badge inv-assertion-card__state-badge--${effectiveState}">${effectiveState}</span>
+                ${isAgentAuthored ? '<span class="inv-assertion-card__agent-chip">🤖 agent</span>' : ''}
                 ${hasEvidence ? `<span class="inv-assertion-card__evidence-badge">${evidenceCount} evidence span${evidenceCount !== 1 ? 's' : ''}</span>` : ''}
                 ${hasEvidence ? `<button class="inv-assertion-card__show-ev">Show evidence</button>` : ''}
             </div>
@@ -668,6 +685,44 @@ class TriageWindow {
             await this.showChatView(session.session_id, investigation.title);
         } catch (e) {
             console.error('Failed to start investigation chat:', e);
+        }
+    }
+
+    async startAgentInvestigation(investigation) {
+        // Require a document to be loaded first
+        const docId = this._currentDocId;
+        if (!docId) {
+            alert('No evidence document found. Ingest some files first before starting an agent investigation.');
+            return;
+        }
+        const invId = investigation.investigation_id;
+
+        try {
+            // Create a new session with agent_investigation metadata
+            const session = await this.app.apiFetch('/api/sessions', {
+                method: 'POST',
+                body: JSON.stringify({
+                    workspace_id: investigation.workspace_id || this.app.activeWorkspaceId,
+                    metadata: {
+                        investigation_id: invId,
+                        document_id: docId,
+                        agent_investigation: true,
+                    },
+                }),
+            });
+
+            // Link session to investigation
+            await this.app.apiFetch(`/api/investigations/${invId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ session_id: session.session_id }),
+            });
+
+            investigation.session_id = session.session_id;
+            this.activeInvestigation = investigation;
+
+            await this.showChatView(session.session_id, `🤖 ${investigation.title}`);
+        } catch (e) {
+            console.error('Failed to start agent investigation:', e);
         }
     }
 
