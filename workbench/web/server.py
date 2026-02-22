@@ -246,9 +246,26 @@ def create_app(
     # ---- Investigations DB path (used by investigations router) ----
     app.state.investigations_db_path = str(Path(db_path).expanduser())
 
+    # ---- Document store (separate DB — clean domain boundary) ----
+    from workbench.documents.store import DocumentStore
+    documents_db_path = str(
+        Path(db_path).expanduser().parent / "documents.db"
+    )
+    document_store = DocumentStore(documents_db_path)
+    app.state.document_store = document_store
+    app.state.artifact_store = artifact_store
+
+    @app.on_event("startup")
+    async def _init_document_store() -> None:
+        await document_store.init()
+        logger.info("Document store initialized: %s", documents_db_path)
+
     # ---- Include feature routers ----
     app.include_router(agents_router)
     app.include_router(investigations_router)
+
+    from workbench.web.routes.documents import router as documents_router
+    app.include_router(documents_router)
 
     from workbench.web.routes.context import router as context_router, ensure_context_pills_table
     app.include_router(context_router)

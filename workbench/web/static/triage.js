@@ -201,6 +201,26 @@ class TriageWindow {
                 <ul class="investigation-detail__checklist">${checklistHtml}</ul>
             ` : ''}
             ${this.renderContextPills(inv)}
+            <div class="inv-assertions" id="invAssertionsSection">
+                <div class="inv-assertions__header">
+                    <div class="inv-assertions__title">Evidence &amp; Assertions</div>
+                    <button class="inv-assertions__ingest-btn" id="btnIngestFile" style="display:none">↑ Ingest File</button>
+                </div>
+                <div class="inv-assertions__loading" id="invAssertionsBody">Loading…</div>
+                <input type="file" id="ingestFileInput" style="display:none" accept="*/*">
+            </div>
+            <div class="inv-narrative" id="invNarrativeSection" style="display:none">
+                <div class="inv-narrative__header">
+                    <div class="inv-narrative__title">Narratives</div>
+                    <div class="inv-narrative__actions">
+                        <button class="inv-narrative__regen-btn" id="btnRegenInternal" disabled>Regenerate Internal</button>
+                        <button class="inv-narrative__regen-btn" id="btnRegenCustomer" disabled>Regenerate Customer</button>
+                    </div>
+                </div>
+                <div class="inv-narrative__blocks" id="invNarrativeBlocks">
+                    <span class="inv-narrative__empty">Loading…</span>
+                </div>
+            </div>
             <div class="investigation-detail__chat-section">
                 ${hasSession ? `
                     <button class="investigation-detail__chat-btn" id="btnOpenChat">
@@ -244,6 +264,352 @@ class TriageWindow {
 
         // Wire context pills
         this.wireContextPills(inv);
+
+        // Wire ingest button (shown once _loadAssertions resolves a document)
+        this._currentInvId = inv.investigation_id;
+        this._currentDocId = null;
+
+        // Async: load document assertions + narratives
+        this._loadAssertions(inv.investigation_id);
+    }
+
+    // ---- Evidence & assertions ----
+
+    async _loadAssertions(investigationId) {
+        const container = document.getElementById('invAssertionsBody');
+        if (!container) return;
+
+        try {
+            const data = await this.app.apiFetch(
+                `/api/investigations/${investigationId}/documents`
+            );
+            const docs = data.documents || [];
+
+            if (docs.length === 0) {
+                container.innerHTML = '<span class="inv-assertions__empty">No evidence documents yet.</span>';
+                return;
+            }
+
+            // Store first doc ID for ingest button and reveal it
+            if (docs.length > 0) {
+                this._currentDocId = docs[0].document_id;
+                const btnIngest = document.getElementById('btnIngestFile');
+                if (btnIngest) {
+                    btnIngest.style.display = '';
+                    btnIngest.onclick = () => this._triggerIngest(investigationId, this._currentDocId);
+                }
+                const ingestInput = document.getElementById('ingestFileInput');
+                if (ingestInput) {
+                    ingestInput.onchange = (e) => {
+                        const f = e.target.files[0];
+                        if (f) this._uploadFile(investigationId, this._currentDocId, f);
+                        e.target.value = '';  // reset so same file can be re-selected
+                    };
+                }
+            }
+
+            // Fetch full graph for each document and collect assertions + narratives
+            const allAssertions = [];
+            const allNarratives = [];        // { block, _doc_id, _doc_revision }
+            const docMeta = {};             // docId -> { current_revision }
+
+            for (const doc of docs) {
+                try {
+                    const full = await this.app.apiFetch(
+                        `/api/investigations/${investigationId}/documents/${doc.document_id}?include=graph`
+                    );
+                    const blocks = (full.state && full.state.blocks) ? full.state.blocks : {};
+                    const assertionStates = (full.state && full.state.assertion_states) ? full.state.assertion_states : {};
+                    const docId = doc.document_id;
+                    const revision = full.current_revision || 0;
+                    docMeta[docId] = { current_revision: revision };
+
+                    for (const [bid, block] of Object.entries(blocks)) {
+                        if (block.type === 'assertion') {
+                            // Effective approval state comes from assertion_states (review-driven),
+                            // not from the assertion block's own workflow_state
+                            const effectiveState = assertionStates[bid] || block.workflow_state || 'draft';
+                            allAssertions.push({
+                                ...block,
+                                _doc_id: docId,
+                                _inv_id: investigationId,
+                                _effective_state: effectiveState,
+                                _doc_revision: revision,
+                            });
+                        }
+                        if (block.type === 'narrative') {
+                            allNarratives.push({ ...block, _doc_id: docId, _doc_revision: revision });
+                        }
+                    }
+                } catch (_) { /* skip bad doc */ }
+            }
+
+            if (allAssertions.length === 0) {
+                container.innerHTML = '<span class="inv-assertions__empty">No assertions yet.</span>';
+            } else {
+                const hasApproved = allAssertions.some(a => a._effective_state === 'approved');
+
+                container.innerHTML = '';
+                for (const a of allAssertions) {
+                    const card = this._buildAssertionCard(a);
+                    container.appendChild(card);
+                }
+
+                // Enable narrative regen buttons if there are approved assertions
+                this._wireNarrativeButtons(investigationId, docMeta, hasApproved);
+            }
+
+            // Render narrative panel
+            this._renderNarrativePanel(allNarratives);
+
+        } catch (e) {
+            const container2 = document.getElementById('invAssertionsBody');
+            if (container2) container2.innerHTML = '<span class="inv-assertions__empty">Could not load assertions.</span>';
+        }
+    }
+
+    _buildAssertionCard(assertion) {
+        const card = document.createElement('div');
+        card.className = 'inv-assertion-card';
+
+        const evidenceCount = Array.isArray(assertion.evidence) ? assertion.evidence.length : 0;
+        const effectiveState = assertion._effective_state || 'draft';
+        const hasEvidence = evidenceCount > 0;
+        const isDecided = (effectiveState === 'approved' || effectiveState === 'rejected');
+
+        card.innerHTML = `
+            <div class="inv-assertion-card__claim">${this.app.escapeHtml(assertion.claim || '')}</div>
+            <div class="inv-assertion-card__footer">
+                <span class="inv-assertion-card__state-badge inv-assertion-card__state-badge--${effectiveState}">${effectiveState}</span>
+                ${hasEvidence ? `<span class="inv-assertion-card__evidence-badge">${evidenceCount} evidence span${evidenceCount !== 1 ? 's' : ''}</span>` : ''}
+                ${hasEvidence ? `<button class="inv-assertion-card__show-ev">Show evidence</button>` : ''}
+            </div>
+            ${!isDecided ? `
+            <div class="inv-assertion-card__actions">
+                <button class="inv-assertion-card__approve-btn">Approve</button>
+                <button class="inv-assertion-card__reject-btn">Reject</button>
+            </div>` : ''}
+        `;
+
+        if (hasEvidence) {
+            const btn = card.querySelector('.inv-assertion-card__show-ev');
+            btn.addEventListener('click', () => {
+                if (!this._evidenceViewer) {
+                    this._evidenceViewer = new EvidenceViewer(this.app);
+                }
+                this._evidenceViewer.show(assertion._inv_id, assertion._doc_id, assertion.id);
+            });
+        }
+
+        if (!isDecided) {
+            const approveBtn = card.querySelector('.inv-assertion-card__approve-btn');
+            const rejectBtn = card.querySelector('.inv-assertion-card__reject-btn');
+            if (approveBtn) {
+                approveBtn.addEventListener('click', () => {
+                    this._showReviewModal(assertion, 'approved', card);
+                });
+            }
+            if (rejectBtn) {
+                rejectBtn.addEventListener('click', () => {
+                    this._showReviewModal(assertion, 'rejected', card);
+                });
+            }
+        }
+
+        return card;
+    }
+
+    _showReviewModal(assertion, decision, card) {
+        const label = decision === 'approved' ? 'Approve' : 'Reject';
+        const modal = document.createElement('div');
+        modal.className = 'review-modal';
+        modal.innerHTML = `
+            <div class="review-modal__dialog">
+                <div class="review-modal__title">${label} Assertion</div>
+                <div class="review-modal__claim">"${this.app.escapeHtml((assertion.claim || '').slice(0, 120))}"</div>
+                <div>
+                    <div class="review-modal__label">Reason (required)</div>
+                    <textarea class="review-modal__reason" placeholder="Enter your reason…" rows="3"></textarea>
+                </div>
+                <div class="review-modal__actions">
+                    <button class="review-modal__cancel">Cancel</button>
+                    <button class="review-modal__confirm review-modal__confirm--${decision}">${label}</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const textarea = modal.querySelector('.review-modal__reason');
+        const cancelBtn = modal.querySelector('.review-modal__cancel');
+        const confirmBtn = modal.querySelector('.review-modal__confirm');
+
+        const close = () => modal.remove();
+        cancelBtn.addEventListener('click', close);
+        modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+        confirmBtn.addEventListener('click', async () => {
+            const reason = textarea.value.trim();
+            if (!reason) { textarea.focus(); return; }
+            confirmBtn.disabled = true;
+            try {
+                const resp = await this.app.apiFetch(
+                    `/api/investigations/${assertion._inv_id}/documents/${assertion._doc_id}/reviews`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            target_assertion_ids: [assertion.id],
+                            decision,
+                            reason,
+                        }),
+                    }
+                );
+                close();
+                // Update badge on the card without full re-render
+                const badge = card.querySelector('.inv-assertion-card__state-badge');
+                if (badge) {
+                    badge.className = `inv-assertion-card__state-badge inv-assertion-card__state-badge--${decision}`;
+                    badge.textContent = decision;
+                }
+                const actionsRow = card.querySelector('.inv-assertion-card__actions');
+                if (actionsRow) actionsRow.remove();
+                // Refresh narrative buttons now that approval state changed
+                this._loadAssertions(assertion._inv_id);
+            } catch (err) {
+                confirmBtn.disabled = false;
+                alert('Review failed: ' + (err.message || 'unknown error'));
+            }
+        });
+
+        textarea.focus();
+    }
+
+    _wireNarrativeButtons(investigationId, docMeta, hasApproved) {
+        // Use first available document for narrative regen
+        const docIds = Object.keys(docMeta);
+        if (docIds.length === 0) return;
+        const docId = docIds[0];
+        const revision = docMeta[docId].current_revision;
+
+        const btnInternal = document.getElementById('btnRegenInternal');
+        const btnCustomer = document.getElementById('btnRegenCustomer');
+        const section = document.getElementById('invNarrativeSection');
+
+        if (section) section.style.display = '';
+
+        if (btnInternal) {
+            btnInternal.disabled = !hasApproved;
+            btnInternal.onclick = () => this._regenNarrative(investigationId, docId, 'internal', revision);
+        }
+        if (btnCustomer) {
+            btnCustomer.disabled = !hasApproved;
+            btnCustomer.onclick = () => this._regenNarrative(investigationId, docId, 'customer', revision);
+        }
+    }
+
+    async _regenNarrative(investigationId, docId, audience, expectedRevision) {
+        const blocksEl = document.getElementById('invNarrativeBlocks');
+        if (blocksEl) blocksEl.innerHTML = '<span class="inv-narrative__empty">Generating…</span>';
+        try {
+            await this.app.apiFetch(
+                `/api/investigations/${investigationId}/documents/${docId}/narratives:regenerate`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ audience, expected_revision: expectedRevision }),
+                }
+            );
+            // Reload assertions (which also reloads narratives)
+            this._loadAssertions(investigationId);
+        } catch (err) {
+            if (blocksEl) blocksEl.innerHTML = `<span class="inv-narrative__empty" style="color:var(--status-error)">${this.app.escapeHtml(err.message || 'Failed')}</span>`;
+        }
+    }
+
+    _renderNarrativePanel(narratives) {
+        const blocksEl = document.getElementById('invNarrativeBlocks');
+        const section = document.getElementById('invNarrativeSection');
+        if (!blocksEl) return;
+
+        if (narratives.length === 0) {
+            blocksEl.innerHTML = '<span class="inv-narrative__empty">No narratives generated yet.</span>';
+            if (section) section.style.display = '';
+            return;
+        }
+
+        // Latest per audience
+        const latest = {};
+        for (const n of narratives) {
+            const aud = n.audience || 'internal';
+            if (!latest[aud] || (n.generated_at || '') > (latest[aud].generated_at || '')) {
+                latest[aud] = n;
+            }
+        }
+
+        blocksEl.innerHTML = '';
+        for (const [aud, n] of Object.entries(latest)) {
+            const block = document.createElement('div');
+            block.className = 'inv-narrative__block';
+            block.innerHTML = `
+                <div class="inv-narrative__block-meta">
+                    <span class="inv-narrative__audience-badge inv-narrative__audience-badge--${aud}">${aud}</span>
+                    <span class="inv-narrative__rev">rev ${n.source_revision || 0} · ${(n.generated_at || '').slice(0, 16).replace('T', ' ')}</span>
+                </div>
+                <div class="inv-narrative__content">${this.app.escapeHtml(n.content || '')}</div>
+            `;
+            blocksEl.appendChild(block);
+        }
+
+        if (section) section.style.display = '';
+    }
+
+    // ---- File ingest ----
+
+    _triggerIngest(investigationId, docId) {
+        if (!docId) return;
+        const input = document.getElementById('ingestFileInput');
+        if (input) input.click();
+    }
+
+    async _uploadFile(investigationId, docId, file) {
+        const btn = document.getElementById('btnIngestFile');
+        const container = document.getElementById('invAssertionsBody');
+
+        if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
+
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('label', '');
+        fd.append('newline_mode', 'unknown');
+
+        try {
+            const result = await this.app.apiFetch(
+                `/api/investigations/${investigationId}/documents/${docId}/ingest/file`,
+                { method: 'POST', body: fd }
+            );
+
+            // Refresh the assertions panel (picks up new output block)
+            this._loadAssertions(investigationId);
+
+            // Brief confirmation in the container
+            if (container) {
+                const note = document.createElement('div');
+                note.style.cssText = 'font-size:11px;color:var(--status-connected,#4af);padding:4px 0';
+                note.textContent = `✓ Ingested "${file.name}" — ${result.byte_length?.toLocaleString() || '?'} bytes${result.indexed ? ', indexed' : ''}`;
+                container.prepend(note);
+                setTimeout(() => note.remove(), 5000);
+            }
+        } catch (err) {
+            if (container) {
+                const note = document.createElement('div');
+                note.style.cssText = 'font-size:11px;color:var(--status-error,#f76a6a);padding:4px 0';
+                note.textContent = `Upload failed: ${err.message || 'unknown error'}`;
+                container.prepend(note);
+                setTimeout(() => note.remove(), 8000);
+            }
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '↑ Ingest File'; }
+        }
     }
 
     // ---- Embedded chat (right panel) ----

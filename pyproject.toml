@@ -18,6 +18,7 @@ dependencies = [
     "textual>=0.40",
     "pyyaml>=6.0",
     "fastapi>=0.109",
+    "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.25",
 ]
 
