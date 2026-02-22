@@ -185,6 +185,82 @@ async def get_investigation_context_for_session(
         return ""
 
 
+async def build_document_model_context(
+    doc_store: Any,
+    investigation_id: str,
+    document_id: str,
+) -> str:
+    """
+    Build a compact document-model context section for the LLM system prompt.
+
+    Injected when a session has investigation_id + document_id in metadata,
+    so the agent knows the current state: revision, pending review assertions,
+    approval summary, and latest narrative IDs.
+    """
+    try:
+        state = await doc_store.get_state(investigation_id, document_id)
+        doc = await doc_store.get_document(investigation_id, document_id)
+    except Exception:
+        logger.debug(
+            "Could not load document context for %s/%s", investigation_id, document_id,
+            exc_info=True,
+        )
+        return ""
+
+    if state is None or doc is None:
+        return ""
+
+    revision: int = doc.get("current_revision", 0)
+    blocks: dict = state.get("blocks", {})
+    assertion_states: dict = state.get("assertion_states", {})
+
+    approved_count = sum(1 for ws in assertion_states.values() if ws == "approved")
+    rejected_count = sum(1 for ws in assertion_states.values() if ws == "rejected")
+    submitted_ids = [
+        aid for aid, ws in assertion_states.items() if ws == "submitted"
+    ]
+
+    # Latest narratives per audience
+    narratives: dict[str, dict] = {}
+    for b in blocks.values():
+        if b.get("type") == "narrative":
+            aud = b.get("audience", "internal")
+            existing = narratives.get(aud)
+            if existing is None or b.get("source_revision", 0) > existing.get("source_revision", 0):
+                narratives[aud] = b
+
+    lines: list[str] = [
+        f"## Agent Investigation Context",
+        f"investigation_id={investigation_id}  document_id={document_id}  revision={revision}",
+        f"Assertions: {approved_count} approved, {rejected_count} rejected, "
+        f"{len(submitted_ids)} pending review",
+    ]
+
+    if submitted_ids:
+        lines.append(f"\n### Pending Human Review ({len(submitted_ids)} assertions)")
+        for aid in submitted_ids[:5]:  # cap to keep context short
+            claim = blocks.get(aid, {}).get("claim", "")[:120]
+            lines.append(f"- {aid}: {claim}")
+        if len(submitted_ids) > 5:
+            lines.append(f"  … and {len(submitted_ids) - 5} more")
+
+    if narratives:
+        lines.append("\n### Latest Narratives")
+        for aud, narr in narratives.items():
+            lines.append(
+                f"- {aud}: id={narr.get('id', '')} "
+                f"source_revision={narr.get('source_revision', 0)}"
+            )
+
+    if approved_count > 0 and not narratives:
+        lines.append(
+            f"\nNote: {approved_count} assertion(s) approved — "
+            "you can call regenerate_narrative to produce a narrative."
+        )
+
+    return "\n".join(lines) + "\n\n"
+
+
 # -----------------------------------------------------------------------
 # Endpoints
 # -----------------------------------------------------------------------

@@ -287,6 +287,31 @@ def create_app(
     except Exception:
         logger.debug("Could not register SaveRecipeTool", exc_info=True)
 
+    # Register M5 evidence connector tools (command ingest + remote file ingest)
+    try:
+        from workbench.tools.evidence_tools import IngestCommandOutputTool, IngestRemoteFileTool
+        if registry is not None and artifact_store is not None and backend_router is not None:
+            registry.register(IngestCommandOutputTool(document_store, artifact_store, backend_router))
+            registry.register(IngestRemoteFileTool(document_store, artifact_store, backend_router))
+            logger.debug("Registered M5 evidence connector tools")
+    except Exception:
+        logger.debug("Could not register evidence connector tools", exc_info=True)
+
+    # Register M6 investigation tools (assertion, submit, narrative)
+    try:
+        from workbench.tools.investigation_tools import (
+            CreateAssertionTool,
+            SubmitForReviewTool,
+            RegenerateNarrativeTool,
+        )
+        if registry is not None and artifact_store is not None:
+            registry.register(CreateAssertionTool(document_store, artifact_store))
+            registry.register(SubmitForReviewTool(document_store))
+            registry.register(RegenerateNarrativeTool(document_store))
+            logger.debug("Registered M6 investigation tools")
+    except Exception:
+        logger.debug("Could not register investigation tools", exc_info=True)
+
     # ---- Static files ----
     if _STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
@@ -930,6 +955,24 @@ def create_app(
             )
             if pills_ctx:
                 context_prefix = pills_ctx + context_prefix
+
+        # Inject document model context if session is an agent investigation
+        meta_full = {}
+        if session_meta.get("metadata"):
+            try:
+                meta_full = json.loads(session_meta["metadata"]) if isinstance(session_meta["metadata"], str) else session_meta["metadata"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if meta_full.get("agent_investigation") and hasattr(app.state, "document_store") and app.state.document_store:
+            inv_id_from_meta = meta_full.get("investigation_id")
+            doc_id_from_meta = meta_full.get("document_id")
+            if inv_id_from_meta and doc_id_from_meta:
+                from workbench.web.routes.investigations import build_document_model_context
+                doc_ctx = await build_document_model_context(
+                    app.state.document_store, inv_id_from_meta, doc_id_from_meta
+                )
+                if doc_ctx:
+                    context_prefix = context_prefix + doc_ctx
 
         cm = app.state.confirmation_manager
 

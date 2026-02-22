@@ -17,7 +17,6 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -28,8 +27,19 @@ from workbench.documents.store import DocumentStore, resolve_actor
 from workbench.documents.indexer import (
     index_bytes, excerpt_bytes, resolve_span, get_context_lines, validate_span,
 )
+from workbench.documents.ingest import (
+    process_bytes_ingest,
+    is_indexable,
+    make_artifact_ref,
+    ensure_artifact_index,
+    INDEX_SIZE_THRESHOLD,
+    MAX_UPLOAD_SIZE,
+)
 from workbench.documents.templates import build_narrative, generation_inputs_hash
 from workbench.types import ArtifactRef
+
+# Backward-compat aliases (M4 tests import these private names from here)
+_is_indexable = is_indexable
 
 logger = logging.getLogger(__name__)
 
@@ -57,36 +67,16 @@ def _get_artifact_store(request: Request):
     return store
 
 
-def _make_artifact_ref(artifact_store, sha256: str) -> ArtifactRef:
-    """Construct an ArtifactRef from a sha256, using the store's path layout."""
-    return ArtifactRef(
-        sha256=sha256,
-        stored_path=str(artifact_store._artifact_path(sha256)),
-    )
+def _get_backend_router(request: Request):
+    router = getattr(request.app.state, "backend_router", None)
+    if router is None:
+        raise HTTPException(503, "Backend router not available")
+    return router
 
 
-async def _ensure_artifact_index(
-    doc_store: DocumentStore,
-    artifact_store,
-    artifact_ref: str,
-    content_encoding: str = "utf-8",
-    newline_mode: str = "lf",
-) -> dict | None:
-    """
-    Return the index for an artifact, building it inline if not yet stored.
-    Returns None if the artifact does not exist in the artifact store.
-    """
-    idx = await doc_store.get_artifact_index(artifact_ref)
-    if idx is not None:
-        return idx
-    # Build on read — artifact must exist
-    try:
-        raw = artifact_store.get(_make_artifact_ref(artifact_store, artifact_ref))
-    except FileNotFoundError:
-        return None
-    lm, rm = index_bytes(raw, content_encoding=content_encoding, newline_mode=newline_mode)
-    await doc_store.store_artifact_index(artifact_ref, lm, rm)
-    return await doc_store.get_artifact_index(artifact_ref)
+# Aliases for call sites that still use the private names
+_make_artifact_ref = make_artifact_ref
+_ensure_artifact_index = ensure_artifact_index
 
 
 def _extract_actor(request: Request) -> tuple[str, str, str]:
@@ -104,33 +94,12 @@ def _block_id() -> str:
 
 
 # ---------------------------------------------------------------------------
-# File ingest constants + core helper
+# File ingest backward-compat wrapper
 # ---------------------------------------------------------------------------
-
-# Extensions treated as text for indexing purposes
-_INDEXABLE_EXTENSIONS: frozenset[str] = frozenset({
-    ".log", ".txt", ".json", ".csv", ".yaml", ".yml",
-    ".md", ".xml", ".conf", ".cfg", ".ini", ".toml",
-    ".sh", ".py", ".rb", ".js", ".ts",
-})
-
-# Size limits
-INDEX_SIZE_THRESHOLD = 20 * 1024 * 1024   # 20 MB — index if under this
-MAX_UPLOAD_SIZE      = 100 * 1024 * 1024  # 100 MB — hard reject above this
-
-
-def _is_indexable(filename: str, content_type: str, size: int) -> bool:
-    """Return True if the artifact should be indexed for line/byte navigation."""
-    if size == 0 or size > INDEX_SIZE_THRESHOLD:
-        return False
-    if content_type.startswith("text/"):
-        return True
-    return Path(filename).suffix.lower() in _INDEXABLE_EXTENSIONS
-
 
 async def _process_file_ingest(
     doc_store: DocumentStore,
-    artifact_store,
+    artifact_store: Any,
     investigation_id: str,
     document_id: str,
     actor_id: str,
@@ -144,129 +113,24 @@ async def _process_file_ingest(
     stream: str,
     label: str,
 ) -> dict[str, Any]:
-    """
-    Core file ingest logic — testable without an HTTP context.
-
-    Creates:
-      command block  (tool="file_ingest")
-      output block   (artifact_ref + optional index_ref)
-
-    Returns dict with command_id, output_id, artifact_ref, index_ref, revision, …
-    """
-    from workbench.types import ArtifactPayload  # noqa: PLC0415
-
-    now = _now()
-    safe_name = Path(filename).name  # strip directory traversal
-
-    # ---- Store artifact ----
-    payload_obj = ArtifactPayload(
-        content=raw,
-        original_name=safe_name,
-        media_type=content_type,
-        description=f"Ingested file: {safe_name}" + (f" [{label}]" if label else ""),
+    """Thin wrapper kept for backward compat with M4 tests. Delegates to ingest.py."""
+    return await process_bytes_ingest(
+        doc_store=doc_store,
+        artifact_store=artifact_store,
+        investigation_id=investigation_id,
+        document_id=document_id,
+        actor_id=actor_id,
+        actor_type=actor_type,
+        actor_source=actor_source,
+        raw=raw,
+        filename=filename,
+        content_type=content_type,
+        encoding=encoding,
+        newline_mode=newline_mode,
+        stream=stream,
+        label=label,
+        tool="file_ingest",
     )
-    artifact_ref_obj = artifact_store.store(payload_obj)
-    artifact_ref = artifact_ref_obj.sha256
-
-    # ---- Command block ----
-    command_id = _block_id()
-    command_block = {
-        "id": command_id,
-        "type": "command",
-        "tool": "file_ingest",
-        "executor": actor_type if actor_type in ("human", "agent") else "human",
-        "run_context": {
-            "workspace": "local",
-            "identity": actor_id,
-            "policy_scope": "local_read",
-            "label": label,
-        },
-        "input": {
-            "command": f"ingest file {safe_name}",
-            "args": {"original_name": safe_name},
-        },
-        "started_at": now,
-        "finished_at": now,
-        "exit_code": 0,
-        "labels": [label] if label else [],
-        "error_summary": "",
-        "created_at": now,
-        "created_by": actor_id,
-    }
-
-    cmd_result = await doc_store.append_event(
-        investigation_id, document_id,
-        actor_id, actor_type, actor_source,
-        "doc.command.created",
-        {"block": command_block},
-    )
-    if not cmd_result["ok"]:
-        raise ValueError("Failed to append command event")
-
-    # ---- Index if text-ish and under threshold ----
-    lm: dict = {}
-    index_ref: str | None = None
-    should_index = _is_indexable(safe_name, content_type, len(raw))
-
-    if should_index:
-        try:
-            lm, rm = index_bytes(
-                raw,
-                content_encoding=encoding,
-                newline_mode=newline_mode,
-            )
-            index_ref = await doc_store.store_artifact_index(artifact_ref, lm, rm)
-        except Exception as exc:
-            logger.warning("Indexing failed for %s: %s", safe_name, exc)
-            lm = {}
-            index_ref = None
-
-    # ---- Output block ----
-    output_id = _block_id()
-    output_block = {
-        "id": output_id,
-        "type": "output",
-        "source_command_id": command_id,
-        "stream": stream,
-        "artifact_ref": artifact_ref,
-        "checksum": artifact_ref,
-        "byte_length": len(raw),
-        "line_count": len(lm),
-        "index_ref": index_ref,
-        "index_version": 1 if index_ref else None,
-        "truncated": False,
-        "content_type": content_type,
-        "content_encoding": encoding,
-        "newline_mode": newline_mode if should_index else "none",
-        "provenance": {
-            "source": "file_ingest",
-            "original_name": safe_name,
-            "label": label,
-        },
-        "indexed_at": now if index_ref else None,
-        "created_at": now,
-        "created_by": actor_id,
-    }
-
-    out_result = await doc_store.append_event(
-        investigation_id, document_id,
-        actor_id, actor_type, actor_source,
-        "doc.output.created",
-        {"block": output_block},
-    )
-    if not out_result["ok"]:
-        raise ValueError("Failed to append output event")
-
-    return {
-        "command_id": command_id,
-        "output_id": output_id,
-        "artifact_ref": artifact_ref,
-        "index_ref": index_ref,
-        "byte_length": len(raw),
-        "line_count": len(lm),
-        "revision": out_result["revision"],
-        "indexed": bool(index_ref),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -968,6 +832,109 @@ async def ingest_file(
         raise HTTPException(500, str(exc))
 
     return JSONResponse(result, status_code=201)
+
+
+# ---------------------------------------------------------------------------
+# Connector: command ingest (HTTP surface for IngestCommandOutputTool)
+# ---------------------------------------------------------------------------
+
+class IngestCommandRequest(BaseModel):
+    command: str = Field(..., min_length=1, description="Shell command to execute and capture")
+    target: str = Field(default="localhost", description="Backend target (localhost or named SSH host)")
+    label: str = Field(default="")
+    stream: str = Field(default="stdout", pattern="^(stdout|stderr|combined)$")
+    max_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+
+
+@router.post("/{document_id}/ingest/command", status_code=201)
+async def ingest_command(
+    investigation_id: str,
+    document_id: str,
+    req: IngestCommandRequest,
+    request: Request,
+):
+    """
+    Execute a shell command via a backend and ingest stdout as an artifact.
+
+    Creates command + output blocks identical in shape to the file ingest
+    endpoint, so the same assertion/review/narrative flows apply.
+    The command runs through the configured backend router (local or SSH).
+    """
+    doc_store = _get_doc_store(request)
+    artifact_store = _get_artifact_store(request)
+    backend_router = _get_backend_router(request)
+    actor_id, actor_type, actor_source = _extract_actor(request)
+
+    doc = await doc_store.get_document(investigation_id, document_id)
+    if doc is None:
+        raise HTTPException(404, f"Document not found: {document_id}")
+
+    try:
+        result = await backend_router.run_shell(req.command, req.target)
+    except Exception as exc:
+        raise HTTPException(502, f"Backend error: {exc}")
+
+    # Select the requested stream
+    if req.stream == "stderr":
+        raw_str = result.get("stderr", "")
+    elif req.stream == "combined":
+        raw_str = result.get("stdout", "") + result.get("stderr", "")
+    else:
+        raw_str = result.get("stdout", "")
+
+    raw = raw_str.encode("utf-8", errors="replace")
+
+    # Clamp to max_bytes and record truncation
+    backend_truncated = bool((result.get("truncated") or {}).get(req.stream if req.stream != "combined" else "stdout"))
+    truncated = backend_truncated or len(raw) > req.max_bytes
+    raw = raw[: req.max_bytes]
+
+    if not raw:
+        raise HTTPException(400, "Command produced no output")
+
+    # Derive a safe filename for metadata (command first word + stream)
+    cmd_slug = req.command.split()[0].replace("/", "_")[:40]
+    filename = f"{cmd_slug}.{req.stream}.txt"
+
+    try:
+        ingest_result = await process_bytes_ingest(
+            doc_store=doc_store,
+            artifact_store=artifact_store,
+            investigation_id=investigation_id,
+            document_id=document_id,
+            actor_id=actor_id,
+            actor_type=actor_type,
+            actor_source=actor_source,
+            raw=raw,
+            filename=filename,
+            content_type="text/plain",
+            encoding="utf-8",
+            newline_mode="unknown",
+            stream=req.stream,
+            label=req.label,
+            tool="command_ingest",
+            command_str=req.command,
+            executor=actor_type if actor_type in ("human", "agent") else "human",
+            run_context={
+                "workspace": req.target,
+                "identity": actor_id,
+                "policy_scope": "local_read" if req.target in ("localhost", "local", "127.0.0.1") else "remote_read",
+                "label": req.label,
+            },
+            truncated=truncated,
+        )
+    except ValueError as exc:
+        raise HTTPException(500, str(exc))
+
+    return JSONResponse(
+        {
+            **ingest_result,
+            "exit_code": result.get("exit_code"),
+            "duration_ms": result.get("duration_ms"),
+            "timed_out": result.get("timed_out", False),
+        },
+        status_code=201,
+    )
 
 
 # ---------------------------------------------------------------------------
