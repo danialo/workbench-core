@@ -178,20 +178,19 @@ async def _setup_stack(
         audit_keep_files=cfg.policy.audit_keep_files,
     )
 
-    # LLM Router - try to set up provider from config
+    # LLM Router - set up providers from config
     router = LLMRouter()
     try:
-        from workbench.llm.providers.openai_compat import OpenAICompatProvider
-        import os
+        from workbench.llm.providers import create_provider
 
-        api_key = os.environ.get(cfg.llm.api_key_env, "not-needed")
-        llm_provider = OpenAICompatProvider(
-            url=cfg.llm.api_base or "http://localhost:3333/v1",
-            model=cfg.llm.model,
-            api_key=api_key,
-            timeout=float(cfg.llm.timeout_seconds),
-        )
-        router.register_provider(cfg.llm.name, llm_provider)
+        primary = create_provider(cfg.llm)
+        if primary:
+            router.register_provider(cfg.llm.name, primary)
+
+        for pcfg in cfg.providers:
+            p = create_provider(pcfg)
+            if p:
+                router.register_provider(pcfg.name, p)
     except Exception as e:
         console.print(f"[yellow]Warning:[/yellow] Could not set up LLM provider: {e}")
         console.print("[dim]Chat will not work without a configured LLM provider.[/dim]")
@@ -548,22 +547,24 @@ def web(
         # LLM Router
         llm_router = LLMRouter()
 
-        from workbench.llm.providers.openai_compat import OpenAICompatProvider
+        from workbench.llm.providers import create_provider
 
-        api_key = os.environ.get(cfg.llm.api_key_env, "")
-        if api_key:
-            llm_provider = OpenAICompatProvider(
-                url=cfg.llm.api_base or "https://api.openai.com/v1",
-                model=cfg.llm.model,
-                api_key=api_key,
-                timeout=float(cfg.llm.timeout_seconds),
-                max_context=cfg.llm.max_context_tokens,
-                max_output=cfg.llm.max_output_tokens,
-            )
-            llm_router.register_provider(cfg.llm.name, llm_provider)
+        # Primary provider
+        primary = create_provider(cfg.llm)
+        if primary:
+            llm_router.register_provider(cfg.llm.name, primary)
             _log.info("LLM provider registered: %s (%s)", cfg.llm.name, cfg.llm.model)
         else:
             _log.warning("No API key found in %s, running in UI-only mode", cfg.llm.api_key_env)
+
+        # Additional providers from config
+        for pcfg in cfg.providers:
+            p = create_provider(pcfg)
+            if p:
+                llm_router.register_provider(pcfg.name, p)
+                _log.info("LLM provider registered: %s (%s)", pcfg.name, pcfg.model)
+
+        if not llm_router.provider_names:
             llm_router = None
 
         # Token counter

@@ -5,6 +5,7 @@
 
 llm:
   name: openai                      # Provider name (used for /switch in TUI)
+  type: openai                      # Provider type: "openai" (any OpenAI-compat API) or "claude-code"
   model: gpt-4o                     # Model identifier sent to the API
   api_base: https://api.openai.com/v1
   api_key_env: OPENAI_API_KEY       # Env var containing the API key
@@ -12,6 +13,25 @@ llm:
   max_output_tokens: 4096
   temperature: 0.0
   timeout_seconds: 120
+
+# Additional providers — switch between them in the UI dropdown or via /switch in TUI.
+# All providers use the OpenAI-compatible wire protocol unless type is set.
+# providers:
+#   - name: gemini-flash
+#     model: gemini-2.0-flash
+#     api_base: https://generativelanguage.googleapis.com/v1beta/openai
+#     api_key_env: GOOGLE_API_KEY
+#   - name: claude-sonnet
+#     model: claude-sonnet-4-20250514
+#     api_base: https://api.anthropic.com/v1
+#     api_key_env: ANTHROPIC_API_KEY
+#   - name: local-llama
+#     model: llama3
+#     api_base: http://localhost:11434/v1
+#     api_key_env: ""
+#   - name: claude-code
+#     type: claude-code              # Uses local claude CLI (Max/Pro subscription)
+#     max_context_tokens: 200000
 
 policy:
   max_risk: SHELL                   # Maximum tool risk: READ_ONLY, WRITE, DESTRUCTIVE, SHELL

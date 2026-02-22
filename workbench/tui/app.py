@@ -592,16 +592,16 @@ async def launch_tui(
     # LLM Router
     router = LLMRouter()
     try:
-        from workbench.llm.providers.openai_compat import OpenAICompatProvider
+        from workbench.llm.providers import create_provider
 
-        api_key = os.environ.get(cfg.llm.api_key_env, "not-needed")
-        llm_provider = OpenAICompatProvider(
-            url=cfg.llm.api_base or "http://localhost:3333/v1",
-            model=cfg.llm.model,
-            api_key=api_key,
-            timeout=float(cfg.llm.timeout_seconds),
-        )
-        router.register_provider(cfg.llm.name, llm_provider)
+        primary = create_provider(cfg.llm)
+        if primary:
+            router.register_provider(cfg.llm.name, primary)
+
+        for pcfg in cfg.providers:
+            p = create_provider(pcfg)
+            if p:
+                router.register_provider(pcfg.name, p)
     except Exception:
         pass
 

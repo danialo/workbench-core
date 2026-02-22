@@ -457,8 +457,16 @@
                         <p class="settings-tab__placeholder">Theme, layout preferences, and workspace defaults will be configurable here.</p>
                     </div>
                     <div class="settings-tab" id="settingsTabLlm" style="display:none">
-                        <h3 class="settings-tab__heading">LLM / Providers</h3>
-                        <p class="settings-tab__placeholder">Model selection, API endpoints, temperature, and token limits.</p>
+                        <div class="settings-tab__header-row">
+                            <div>
+                                <h3 class="settings-tab__heading">LLM / Providers</h3>
+                                <p class="settings-tab__subtitle">Manage LLM providers and switch the active model.</p>
+                            </div>
+                            <button class="settings-providers__add-btn" id="btnAddProvider" title="Add provider">+</button>
+                        </div>
+                        <div class="settings-providers" id="settingsProviders">
+                            <div class="settings-providers__loading">Loading providers...</div>
+                        </div>
                     </div>
                     <div class="settings-tab" id="settingsTabAgents" style="display:none">
                         <h3 class="settings-tab__heading">Agents</h3>

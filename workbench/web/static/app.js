@@ -381,19 +381,223 @@ class AgentManagerApp {
     async fetchProviders() {
         try {
             const data = await this.apiFetch('/api/providers');
+            this._providersData = data;
             const select = document.getElementById('modelSelect');
             if (select && data.providers && data.providers.length > 0) {
                 select.innerHTML = '';
                 for (const p of data.providers) {
                     const opt = document.createElement('option');
-                    opt.value = p;
-                    opt.textContent = p;
-                    opt.selected = (p === data.active);
+                    opt.value = p.name;
+                    opt.textContent = p.name;
+                    opt.selected = (p.name === data.active);
                     select.appendChild(opt);
+                }
+                // Wire up provider switching
+                if (!select._hasChangeHandler) {
+                    select.addEventListener('change', () => this.switchProvider(select.value));
+                    select._hasChangeHandler = true;
                 }
             }
         } catch (e) {
             console.warn('Could not fetch providers:', e);
+        }
+    }
+
+    async switchProvider(name) {
+        try {
+            await this.apiFetch(`/api/providers/${encodeURIComponent(name)}/activate`, {
+                method: 'POST',
+            });
+            await this.fetchProviders();
+            this.renderProvidersSettings();
+        } catch (e) {
+            console.error('Failed to switch provider:', e);
+        }
+    }
+
+    renderProvidersSettings() {
+        const container = document.getElementById('settingsProviders');
+        if (!container) return;
+
+        // Wire up the + button (re-wire every render since tab may recreate DOM)
+        const addBtn = document.getElementById('btnAddProvider');
+        if (addBtn) {
+            addBtn.onclick = () => this.showProviderForm();
+        }
+
+        const data = this._providersData;
+        if (!data || !data.providers) {
+            container.innerHTML = '<p class="settings-tab__placeholder">Loading providers...</p>';
+            return;
+        }
+
+        if (data.providers.length === 0) {
+            container.innerHTML = '<p class="settings-tab__placeholder">No providers configured. Click + to add one.</p>';
+            return;
+        }
+
+        container.innerHTML = data.providers.map(p => {
+            const isActive = p.name === data.active;
+            return `
+                <div class="settings-provider-card ${isActive ? 'settings-provider-card--active' : ''}" data-provider="${p.name}">
+                    <div class="settings-provider-card__header">
+                        <span class="settings-provider-card__name">${p.name}</span>
+                        <div class="settings-provider-card__actions">
+                            <button class="settings-provider-card__action-btn" data-action="edit" title="Edit">&#9998;</button>
+                            <button class="settings-provider-card__action-btn settings-provider-card__action-btn--delete" data-action="delete" title="Delete">&times;</button>
+                            ${isActive
+                                ? '<span class="settings-provider-card__badge">Active</span>'
+                                : '<button class="settings-provider-card__activate" data-action="activate">Activate</button>'
+                            }
+                        </div>
+                    </div>
+                    <div class="settings-provider-card__details">
+                        <div class="settings-provider-card__row">
+                            <span class="settings-provider-card__label">Model</span>
+                            <span class="settings-provider-card__value">${p.model}</span>
+                        </div>
+                        <div class="settings-provider-card__row">
+                            <span class="settings-provider-card__label">Type</span>
+                            <span class="settings-provider-card__value">${p.type}</span>
+                        </div>
+                        <div class="settings-provider-card__row">
+                            <span class="settings-provider-card__label">Endpoint</span>
+                            <span class="settings-provider-card__value settings-provider-card__value--mono">${p.api_base || '—'}</span>
+                        </div>
+                        <div class="settings-provider-card__row">
+                            <span class="settings-provider-card__label">API Key</span>
+                            <span class="settings-provider-card__value settings-provider-card__value--mono">${p.api_key_env || '<span style="color:var(--status-error)">Not set</span>'}</span>
+                        </div>
+                        <div class="settings-provider-card__row">
+                            <span class="settings-provider-card__label">Context</span>
+                            <span class="settings-provider-card__value">${(p.max_context_tokens || 0).toLocaleString()} tokens</span>
+                        </div>
+                    </div>
+                </div>`;
+        }).join('');
+
+        // Wire card action buttons via event delegation
+        container.querySelectorAll('[data-action]').forEach(btn => {
+            const card = btn.closest('[data-provider]');
+            const name = card?.dataset.provider;
+            if (!name) return;
+            const action = btn.dataset.action;
+            if (action === 'edit') btn.onclick = () => this.showProviderForm(name);
+            else if (action === 'delete') btn.onclick = () => this.deleteProvider(name);
+            else if (action === 'activate') btn.onclick = () => this.switchProvider(name);
+        });
+    }
+
+    showProviderForm(editName = null) {
+        const container = document.getElementById('settingsProviders');
+        if (!container) return;
+
+        let prefill = { name: '', type: 'openai', model: '', api_base: '', api_key_env: '', max_context_tokens: 128000, max_output_tokens: 4096 };
+        if (editName && this._providersData) {
+            const existing = this._providersData.providers.find(p => p.name === editName);
+            if (existing) prefill = { ...prefill, ...existing };
+        }
+        const isEdit = !!editName;
+
+        container.innerHTML = `
+            <div class="settings-provider-form">
+                <h4 class="settings-provider-form__title">${isEdit ? 'Edit' : 'Add'} Provider</h4>
+                <div class="settings-provider-form__error" id="providerFormError" style="display:none"></div>
+                <div class="settings-provider-form__field">
+                    <label for="providerFormName">Name</label>
+                    <input type="text" id="providerFormName" value="${prefill.name}" ${isEdit ? 'readonly' : ''} placeholder="e.g. gemini-flash" required>
+                </div>
+                <div class="settings-provider-form__field">
+                    <label for="providerFormType">Type</label>
+                    <select id="providerFormType">
+                        <option value="openai" ${prefill.type === 'openai' ? 'selected' : ''}>OpenAI Compatible</option>
+                        <option value="claude-code" ${prefill.type === 'claude-code' ? 'selected' : ''}>Claude Code CLI</option>
+                    </select>
+                </div>
+                <div class="settings-provider-form__field">
+                    <label for="providerFormModel">Model</label>
+                    <input type="text" id="providerFormModel" value="${prefill.model}" placeholder="e.g. gpt-4o, gemini-2.0-flash" required>
+                </div>
+                <div class="settings-provider-form__field">
+                    <label for="providerFormApiBase">API Base URL</label>
+                    <input type="text" id="providerFormApiBase" value="${prefill.api_base}" placeholder="https://api.openai.com/v1">
+                </div>
+                <div class="settings-provider-form__field">
+                    <label for="providerFormApiKeyEnv">API Key Env Var</label>
+                    <input type="text" id="providerFormApiKeyEnv" value="${prefill.api_key_env || ''}" placeholder="e.g. OPENAI_API_KEY, OPEN_ROUTER_API_KEY">
+                </div>
+                <div class="settings-provider-form__row">
+                    <div class="settings-provider-form__field">
+                        <label for="providerFormMaxCtx">Max Context</label>
+                        <input type="number" id="providerFormMaxCtx" value="${prefill.max_context_tokens}">
+                    </div>
+                    <div class="settings-provider-form__field">
+                        <label for="providerFormMaxOut">Max Output</label>
+                        <input type="number" id="providerFormMaxOut" value="${prefill.max_output_tokens}">
+                    </div>
+                </div>
+                <div class="settings-provider-form__actions">
+                    <button class="settings-provider-form__cancel" id="providerFormCancel">Cancel</button>
+                    <button class="settings-provider-form__save" id="providerFormSave">${isEdit ? 'Save' : 'Add Provider'}</button>
+                </div>
+            </div>`;
+
+        // Wire form buttons (no inline handlers — CSP blocks them)
+        document.getElementById('providerFormCancel').onclick = () => {
+            this.fetchProviders().then(() => this.renderProvidersSettings());
+        };
+        document.getElementById('providerFormSave').onclick = () => {
+            this.saveProvider(editName);
+        };
+    }
+
+    async saveProvider(editName) {
+        const errorEl = document.getElementById('providerFormError');
+        const showError = (msg) => {
+            if (errorEl) { errorEl.textContent = msg; errorEl.style.display = 'block'; }
+        };
+
+        const name = document.getElementById('providerFormName')?.value.trim();
+        const model = document.getElementById('providerFormModel')?.value.trim();
+        const type = document.getElementById('providerFormType')?.value;
+        const api_base = document.getElementById('providerFormApiBase')?.value.trim();
+        const api_key_env = document.getElementById('providerFormApiKeyEnv')?.value.trim();
+        const max_context_tokens = parseInt(document.getElementById('providerFormMaxCtx')?.value) || 128000;
+        const max_output_tokens = parseInt(document.getElementById('providerFormMaxOut')?.value) || 4096;
+
+        // Validation
+        if (!name) { showError('Name is required.'); return; }
+        if (!model) { showError('Model is required.'); return; }
+        if (type === 'openai' && !api_base) { showError('API Base URL is required for OpenAI-compatible providers.'); return; }
+        if (type === 'openai' && !api_key_env) { showError('API Key Env Var is required — the name of the environment variable holding your API key.'); return; }
+
+        const body = { name, type, model, api_base, api_key_env, max_context_tokens, max_output_tokens };
+
+        try {
+            const url = editName
+                ? `/api/providers/${encodeURIComponent(editName)}`
+                : '/api/providers';
+            await this.apiFetch(url, {
+                method: editName ? 'PUT' : 'POST',
+                body: JSON.stringify(body),
+            });
+            await this.fetchProviders();
+            this.renderProvidersSettings();
+        } catch (e) {
+            showError(e.message || 'Failed to save provider.');
+        }
+    }
+
+    async deleteProvider(name) {
+        if (!confirm(`Delete provider "${name}"?`)) return;
+        try {
+            await this.apiFetch(`/api/providers/${encodeURIComponent(name)}`, {
+                method: 'DELETE',
+            });
+            await this.fetchProviders();
+            this.renderProvidersSettings();
+        } catch (e) {
+            console.error('Failed to delete provider:', e);
         }
     }
 
@@ -1204,6 +1408,11 @@ class AgentManagerApp {
             const el = document.getElementById(id);
             if (el) el.style.display = key === tabName ? '' : 'none';
         });
+        // Populate LLM tab on open
+        if (tabName === 'llm') {
+            this.renderProvidersSettings(); // Wire button immediately
+            this.fetchProviders().then(() => this.renderProvidersSettings());
+        }
     }
 
     // ---- Generic Overlays (Knowledge, Browser, Feedback) ----

@@ -22,9 +22,10 @@ import yaml
 @dataclass
 class LLMProviderConfig:
     name: str = "openai"
+    type: str = "openai"            # "openai" or "claude-code"
     model: str = "gpt-4o"
     api_base: str = ""
-    api_key_env: str = "OPENAI_API_KEY"
+    api_key_env: str = ""
     max_context_tokens: int = 128_000
     max_output_tokens: int = 4_096
     temperature: float = 0.0
@@ -78,6 +79,7 @@ class BackendsConfig:
 @dataclass
 class WorkbenchConfig:
     llm: LLMProviderConfig = field(default_factory=LLMProviderConfig)
+    providers: list[LLMProviderConfig] = field(default_factory=list)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
@@ -213,8 +215,14 @@ def load_config(
             raw = _deep_merge(raw, profile_data)
 
     # --- Build sections from raw ---
+    extra_providers = [
+        _build_section(LLMProviderConfig, p)
+        for p in raw.get("providers", [])
+        if isinstance(p, dict)
+    ]
     cfg = WorkbenchConfig(
         llm=_build_section(LLMProviderConfig, raw.get("llm", {})),
+        providers=extra_providers,
         policy=_build_section(PolicyConfig, raw.get("policy", {})),
         tools=_build_section(ToolsConfig, raw.get("tools", {})),
         plugins=_build_section(PluginsConfig, raw.get("plugins", {})),

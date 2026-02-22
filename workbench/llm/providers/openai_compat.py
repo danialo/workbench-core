@@ -126,8 +126,10 @@ class OpenAICompatProvider(Provider):
     ) -> dict:
         wire_messages = []
         for msg in messages:
-            m: dict = {"role": msg.role, "content": msg.content}
+            m: dict = {"role": msg.role}
             if msg.tool_calls:
+                # Assistant messages with tool_calls: content must be null or omitted
+                m["content"] = msg.content if msg.content else None
                 m["tool_calls"] = [
                     {
                         "id": tc.id,
@@ -139,6 +141,8 @@ class OpenAICompatProvider(Provider):
                     }
                     for tc in msg.tool_calls
                 ]
+            else:
+                m["content"] = msg.content
             if msg.tool_call_id:
                 m["tool_call_id"] = msg.tool_call_id
             wire_messages.append(m)
@@ -189,6 +193,15 @@ class OpenAICompatProvider(Provider):
                             )
                             continue
 
+                        if response.status_code >= 400:
+                            await response.aread()
+                            error_body = response.text
+                            logger.error(
+                                "LLM API error %d: %s\nMessages: %s",
+                                response.status_code,
+                                error_body,
+                                json.dumps(body.get("messages", []), indent=2, default=str),
+                            )
                         response.raise_for_status()
 
                         async for chunk in self._parse_sse_stream(response):

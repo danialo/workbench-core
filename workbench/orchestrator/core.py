@@ -154,12 +154,13 @@ class Orchestrator:
                     yield StreamChunk(delta=assembled.content, done=True)
                 return
 
-            # Record assistant message (before tool calls)
+            # Always record assistant message when tool calls follow — the
+            # message with tool_calls must precede tool results in history.
+            assistant_event = assistant_message_event(
+                turn_id, assembled.content or "", model=assembled.model
+            )
+            await self.session.append_event(assistant_event)
             if assembled.content:
-                assistant_event = assistant_message_event(
-                    turn_id, assembled.content, model=assembled.model
-                )
-                await self.session.append_event(assistant_event)
                 yield StreamChunk(delta=assembled.content)
 
             # Process each tool call through the lifecycle
@@ -277,9 +278,10 @@ class Orchestrator:
                     return
 
                 # Record assistant message (before tool calls)
-                if full_content:
-                    assistant_ev = assistant_message_event(turn_id, full_content)
-                    await self.session.append_event(assistant_ev)
+                # Always record when there are tool calls — the assistant message
+                # with tool_calls must precede tool results in the message history.
+                assistant_ev = assistant_message_event(turn_id, full_content)
+                await self.session.append_event(assistant_ev)
 
                 # Process each tool call
                 for tc in assembled_calls:

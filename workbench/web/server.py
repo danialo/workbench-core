@@ -912,14 +912,153 @@ def create_app(
 
     @app.get("/api/providers")
     async def list_providers():
-        """List registered LLM providers."""
+        """List registered LLM providers with details."""
         if llm_router is None:
             return JSONResponse({"providers": [], "active": None})
 
+        # Build details from config
+        all_cfgs = [config.llm] + list(config.providers)
+        cfg_map = {c.name: c for c in all_cfgs}
+
+        details = []
+        for name in llm_router.provider_names:
+            c = cfg_map.get(name)
+            details.append({
+                "name": name,
+                "type": getattr(c, "type", "openai") if c else "openai",
+                "model": c.model if c else "unknown",
+                "api_base": c.api_base if c else "",
+                "api_key_env": c.api_key_env if c else "",
+                "max_context_tokens": c.max_context_tokens if c else 0,
+                "max_output_tokens": c.max_output_tokens if c else 0,
+            })
+
         return JSONResponse({
-            "providers": llm_router.provider_names,
+            "providers": details,
             "active": llm_router.active_name,
         })
+
+    @app.post("/api/providers/{name}/activate")
+    async def activate_provider(name: str, request: Request):
+        """Switch the active LLM provider."""
+        if llm_router is None:
+            return JSONResponse({"error": "No LLM providers configured"}, status_code=503)
+        try:
+            llm_router.set_active(name)
+            return JSONResponse({"active": name})
+        except KeyError:
+            return JSONResponse(
+                {"error": f"Unknown provider: {name}", "available": llm_router.provider_names},
+                status_code=404,
+            )
+
+    def _find_config_path() -> Path | None:
+        """Find the workbench.yaml config file."""
+        for p in [
+            Path.cwd() / "workbench.yaml",
+            Path.home() / ".config" / "workbench" / "config.yaml",
+            Path.home() / ".workbench" / "config.yaml",
+        ]:
+            if p.is_file():
+                return p
+        return None
+
+    def _reload_provider(pcfg_dict: dict) -> str | None:
+        """Create and register a provider from a config dict. Returns name or None."""
+        if llm_router is None:
+            return None
+        from workbench.config import LLMProviderConfig
+        from workbench.llm.providers import create_provider
+        lcfg = LLMProviderConfig(**{k: v for k, v in pcfg_dict.items()
+                                     if k in {f.name for f in __import__('dataclasses').fields(LLMProviderConfig)}})
+        p = create_provider(lcfg)
+        if p:
+            llm_router.register_provider(lcfg.name, p)
+            # Update in-memory config
+            existing = [pc for pc in config.providers if pc.name == lcfg.name]
+            if existing:
+                for attr, val in pcfg_dict.items():
+                    if hasattr(existing[0], attr):
+                        setattr(existing[0], attr, val)
+            else:
+                config.providers.append(lcfg)
+            return lcfg.name
+        return None
+
+    @app.post("/api/providers")
+    async def add_provider(request: Request):
+        """Add a new provider to config and register it."""
+        import yaml
+        body = await request.json()
+        name = body.get("name", "").strip()
+        if not name:
+            return JSONResponse({"error": "name is required"}, status_code=400)
+
+        # Save to YAML
+        cfg_path = _find_config_path()
+        if cfg_path:
+            raw = yaml.safe_load(cfg_path.read_text()) or {}
+            providers_list = raw.get("providers", [])
+            # Remove existing with same name
+            providers_list = [p for p in providers_list if p.get("name") != name]
+            providers_list.append(body)
+            raw["providers"] = providers_list
+            cfg_path.write_text(yaml.dump(raw, default_flow_style=False, sort_keys=False))
+
+        # Hot-reload into router
+        result = _reload_provider(body)
+        if result:
+            return JSONResponse({"saved": True, "name": result})
+        return JSONResponse({"error": "Failed to create provider (check API key env var)"}, status_code=400)
+
+    @app.put("/api/providers/{name}")
+    async def update_provider(name: str, request: Request):
+        """Update an existing provider config."""
+        import yaml
+        body = await request.json()
+        body["name"] = name  # Ensure name matches URL
+
+        cfg_path = _find_config_path()
+        if cfg_path:
+            raw = yaml.safe_load(cfg_path.read_text()) or {}
+            # Check if it's the primary llm config
+            if raw.get("llm", {}).get("name") == name:
+                raw["llm"].update(body)
+            else:
+                providers_list = raw.get("providers", [])
+                providers_list = [p for p in providers_list if p.get("name") != name]
+                providers_list.append(body)
+                raw["providers"] = providers_list
+            cfg_path.write_text(yaml.dump(raw, default_flow_style=False, sort_keys=False))
+
+        result = _reload_provider(body)
+        if result:
+            return JSONResponse({"saved": True, "name": result})
+        return JSONResponse({"error": "Failed to update provider"}, status_code=400)
+
+    @app.delete("/api/providers/{name}")
+    async def delete_provider(name: str, request: Request):
+        """Remove a provider from config and router."""
+        import yaml
+        # Don't allow deleting the primary
+        if config and config.llm.name == name:
+            return JSONResponse({"error": "Cannot delete primary provider"}, status_code=400)
+
+        cfg_path = _find_config_path()
+        if cfg_path:
+            raw = yaml.safe_load(cfg_path.read_text()) or {}
+            providers_list = raw.get("providers", [])
+            raw["providers"] = [p for p in providers_list if p.get("name") != name]
+            cfg_path.write_text(yaml.dump(raw, default_flow_style=False, sort_keys=False))
+
+        # Remove from in-memory
+        config.providers = [pc for pc in config.providers if pc.name != name]
+        if llm_router and name in llm_router.provider_names:
+            llm_router._providers.pop(name, None)
+            if llm_router.active_name == name and llm_router.provider_names:
+                llm_router.set_active(llm_router.provider_names[0])
+
+        return JSONResponse({"deleted": True, "name": name})
 
     # --- Memory endpoints ---
 
