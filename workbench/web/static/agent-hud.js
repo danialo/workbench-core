@@ -12,6 +12,7 @@ class AgentHud {
         this.agents = {};
         this.stream = null;
         this.panelOpen = false;
+        this.selectedAgentId = null;
         this._resizing = false;
         this._resizeStartX = 0;
         this._resizeStartWidth = 0;
@@ -34,6 +35,21 @@ class AgentHud {
         const handle = document.getElementById('agentPanelResizeHandle');
         if (handle) {
             handle.addEventListener('mousedown', (e) => this._startResize(e));
+        }
+
+        // Agent panel input
+        const sendBtn = document.getElementById('agentPanelSend');
+        const textarea = document.getElementById('agentPanelTextarea');
+        if (sendBtn) {
+            sendBtn.addEventListener('click', () => this.sendToAgent());
+        }
+        if (textarea) {
+            textarea.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendToAgent();
+                }
+            });
         }
 
         try {
@@ -74,6 +90,11 @@ class AgentHud {
             // Keep for 30s then remove
             setTimeout(() => {
                 delete this.agents[data.session_id];
+                if (this.selectedAgentId === data.session_id) {
+                    this.selectedAgentId = null;
+                    const inputArea = document.getElementById('agentPanelInput');
+                    if (inputArea) inputArea.style.display = 'none';
+                }
                 this.renderPanel();
                 this.renderInboxNotifications();
             }, 30000);
@@ -107,7 +128,10 @@ class AgentHud {
         if (!panel) return;
 
         this.panelOpen = false;
+        this.selectedAgentId = null;
         panel.style.display = 'none';
+        const inputArea = document.getElementById('agentPanelInput');
+        if (inputArea) inputArea.style.display = 'none';
     }
 
     // ---- Resize handle ----
@@ -206,8 +230,16 @@ class AgentHud {
                     ${approveHtml}
                 `;
 
-                // Click navigates to conversation
+                if (agent.session_id === this.selectedAgentId) {
+                    item.classList.add('agent-panel__agent--selected');
+                }
+
+                // Click selects agent (double-click navigates to conversation)
                 item.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('agent-panel__approve-btn')) return;
+                    this.selectAgent(agent.session_id);
+                });
+                item.addEventListener('dblclick', (e) => {
                     if (e.target.classList.contains('agent-panel__approve-btn')) return;
                     this.app.switchWindow('inbox');
                     this.app.selectSession(agent.session_id);
@@ -292,6 +324,36 @@ class AgentHud {
             return `${hours}h`;
         } catch {
             return '';
+        }
+    }
+
+    selectAgent(sessionId) {
+        this.selectedAgentId = sessionId;
+        // Show input area
+        const inputArea = document.getElementById('agentPanelInput');
+        if (inputArea) inputArea.style.display = 'flex';
+        // Focus textarea
+        const textarea = document.getElementById('agentPanelTextarea');
+        if (textarea) textarea.focus();
+        // Re-render to update selection highlight
+        this.renderPanel();
+    }
+
+    async sendToAgent() {
+        if (!this.selectedAgentId) return;
+        const textarea = document.getElementById('agentPanelTextarea');
+        if (!textarea) return;
+        const content = textarea.value.trim();
+        if (!content) return;
+
+        textarea.value = '';
+        try {
+            await this.app.apiFetch(`/api/sessions/${this.selectedAgentId}/stream`, {
+                method: 'POST',
+                body: JSON.stringify({ content }),
+            });
+        } catch (e) {
+            console.error('Failed to send to agent:', e);
         }
     }
 

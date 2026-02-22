@@ -1036,7 +1036,25 @@ class AgentManagerApp {
         const content = document.createElement('div');
         content.className = 'message__content';
 
+        // Copy button — appears on hover
+        const actions = document.createElement('div');
+        actions.className = 'message__actions';
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'message__copy-btn';
+        copyBtn.title = 'Copy';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const raw = content._rawText || content.textContent || '';
+            navigator.clipboard.writeText(raw).then(() => {
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+            });
+        });
+        actions.appendChild(copyBtn);
+
         contentWrapper.appendChild(content);
+        contentWrapper.appendChild(actions);
         div.appendChild(avatar);
         div.appendChild(contentWrapper);
 
@@ -1655,10 +1673,38 @@ class AgentManagerApp {
     appendMessage(role, content) {
         const el = document.createElement('div');
         el.className = `message message--${role}`;
-        el.innerHTML = `
-            <div class="message__role">${role === 'user' ? 'You' : 'Agent'}</div>
-            <div class="message__content">${this.escapeHtml(content)}</div>
-        `;
+
+        const roleLabel = document.createElement('div');
+        roleLabel.className = 'message__role';
+        roleLabel.textContent = role === 'user' ? 'You' : 'Agent';
+
+        const body = document.createElement('div');
+        body.className = 'message__body';
+
+        const contentEl = document.createElement('div');
+        contentEl.className = 'message__content';
+        contentEl.innerHTML = this.escapeHtml(content);
+
+        const actions = document.createElement('div');
+        actions.className = 'message__actions';
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'message__copy-btn';
+        copyBtn.title = 'Copy';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(content).then(() => {
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+            });
+        });
+        actions.appendChild(copyBtn);
+
+        body.appendChild(contentEl);
+        body.appendChild(actions);
+        el.appendChild(roleLabel);
+        el.appendChild(body);
+
         this.elMessages.appendChild(el);
         this.elMessages.scrollTop = this.elMessages.scrollHeight;
         return el;

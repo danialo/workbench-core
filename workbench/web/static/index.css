@@ -2945,6 +2945,37 @@ select {
 .message__body {
     flex: 1;
     min-width: 0;
+    position: relative;
+}
+
+/* Copy button — hidden until hover */
+.message__actions {
+    position: absolute;
+    top: -4px;
+    right: 0;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.message__body:hover .message__actions {
+    opacity: 1;
+}
+
+.message__copy-btn {
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.message__copy-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+    border-color: var(--border-medium);
 }
 
 .message__error {
