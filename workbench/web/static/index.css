@@ -1407,6 +1407,18 @@ select {
     color: var(--bg-primary);
 }
 
+.input-box__send-btn--stop {
+    background: rgba(220, 80, 80, 0.15);
+    color: var(--status-error);
+    border-color: var(--status-error);
+}
+
+.input-box__send-btn--stop:hover {
+    background: rgba(220, 80, 80, 0.25);
+    color: var(--status-error);
+    box-shadow: none;
+}
+
 /* ---- About Section ---- */
 
 .conversation-view__about {

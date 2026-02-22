@@ -261,6 +261,72 @@ class RunShellTool(Tool):
             )
 
 
+class WriteFileTool(Tool):
+    """Write content to a file on a target system."""
+
+    def __init__(self, backend: ExecutionBackend) -> None:
+        self._backend = backend
+
+    @property
+    def name(self) -> str:
+        return "write_file"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Write text content to a file on a target system. "
+            "Creates parent directories if needed. Use for creating or overwriting files."
+        )
+
+    @property
+    def parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute or relative file path to write.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Text content to write to the file.",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Target system (default: localhost).",
+                    "default": "localhost",
+                },
+            },
+            "required": ["path", "content"],
+        }
+
+    @property
+    def risk_level(self) -> ToolRisk:
+        return ToolRisk.WRITE
+
+    @property
+    def privacy_scope(self) -> PrivacyScope:
+        return PrivacyScope.SENSITIVE
+
+    async def execute(self, **kwargs) -> ToolResult:
+        import shlex
+        path = kwargs["path"]
+        content = kwargs["content"]
+        target = kwargs.get("target", "localhost")
+        # Use printf to avoid heredoc quoting issues; create parent dirs first
+        mkdir_cmd = f"mkdir -p {shlex.quote(str(__import__('pathlib').Path(path).parent))}"
+        write_cmd = f"printf '%s' {shlex.quote(content)} > {shlex.quote(path)}"
+        try:
+            await self._backend.run_shell(mkdir_cmd, target)
+            result = await self._backend.run_shell(write_cmd, target)
+            if result.get("exit_code", -1) == 0:
+                return ToolResult(success=True, content=f"Written: {path}")
+            err = result.get("stderr", "").strip() or f"exit code {result.get('exit_code')}"
+            return ToolResult(success=False, content=err, error=err, error_code=ErrorCode.BACKEND_ERROR)
+        except BackendError as e:
+            return ToolResult(success=False, content=str(e), error=str(e), error_code=ErrorCode.BACKEND_ERROR)
+
+
 class SummarizeArtifactTool(Tool):
     """Retrieve and summarize a stored artifact."""
 

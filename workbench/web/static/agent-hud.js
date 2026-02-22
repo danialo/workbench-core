@@ -3,7 +3,7 @@
  *
  * Connects to /api/agents/stream for real-time updates.
  * Renders agent details in the inline Agent Activity Panel (right drawer).
- * Also manages inbox waiting notifications.
+ * Also manages inbox waiting/completion notifications.
  */
 
 class AgentHud {
@@ -15,6 +15,10 @@ class AgentHud {
         this._resizing = false;
         this._resizeStartX = 0;
         this._resizeStartWidth = 0;
+        // Track which agents have their activity log expanded
+        this._expanded = {};
+        // Track which completed agents have already sent an inbox notice
+        this._completedNotified = new Set();
     }
 
     start() {
@@ -70,13 +74,11 @@ class AgentHud {
         const prevAgent = this.agents[data.session_id];
         this.agents[data.session_id] = data;
 
-        if (data.status === 'completed' || data.status === 'error') {
-            // Keep for 30s then remove
-            setTimeout(() => {
-                delete this.agents[data.session_id];
-                this.renderPanel();
-                this.renderInboxNotifications();
-            }, 30000);
+        // Send a completion inbox notice the first time an agent finishes
+        const justCompleted = (data.status === 'completed' || data.status === 'error')
+            && (!prevAgent || (prevAgent.status !== 'completed' && prevAgent.status !== 'error'));
+        if (justCompleted && !this._completedNotified.has(data.session_id)) {
+            this._completedNotified.add(data.session_id);
         }
 
         this.renderPanel();
@@ -155,6 +157,14 @@ class AgentHud {
             return;
         }
 
+        // Sort: active first, then waiting, then completed/error
+        const statusOrder = { running: 0, waiting: 1, error: 2, completed: 3 };
+        entries.sort((a, b) => {
+            const as = a.pending_confirmation ? 1 : (statusOrder[a.status] ?? 99);
+            const bs = b.pending_confirmation ? 1 : (statusOrder[b.status] ?? 99);
+            return as - bs;
+        });
+
         // Group agents by workspace
         const groups = {};
         for (const agent of entries) {
@@ -182,59 +192,120 @@ class AgentHud {
             section.appendChild(header);
 
             for (const agent of group.agents) {
-                const item = document.createElement('div');
-                item.className = 'agent-panel__agent';
-
-                const status = agent.pending_confirmation ? 'waiting' : (agent.status || 'running');
-                const statusClass = `agent-panel__status-dot--${status}`;
-                const sessionShort = (agent.session_id || '').substring(0, 8);
-                const action = agent.current_action || 'Idle';
-                const age = this.formatAge(agent.started_at);
-
-                let approveHtml = '';
-                if (agent.pending_confirmation) {
-                    approveHtml = `<button class="agent-panel__approve-btn" data-session="${agent.session_id}" data-tcid="${agent.pending_confirmation.tool_call_id}">Approve</button>`;
-                }
-
-                item.innerHTML = `
-                    <span class="agent-panel__status-dot ${statusClass}"></span>
-                    <div class="agent-panel__agent-info">
-                        <div class="agent-panel__agent-session">${sessionShort}...</div>
-                        <div class="agent-panel__agent-action">${this.app.escapeHtml(action)}</div>
-                    </div>
-                    <span class="agent-panel__agent-age">${age}</span>
-                    ${approveHtml}
-                `;
-
-                // Click navigates to conversation
-                item.addEventListener('click', (e) => {
-                    if (e.target.classList.contains('agent-panel__approve-btn')) return;
-                    this.app.switchWindow('inbox');
-                    this.app.selectSession(agent.session_id);
-                });
-
-                // Wire approve button
-                const btn = item.querySelector('.agent-panel__approve-btn');
-                if (btn) {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        this.approve(agent.session_id, agent.pending_confirmation.tool_call_id);
-                    });
-                }
-
-                section.appendChild(item);
+                section.appendChild(this._buildAgentItem(agent));
             }
 
             body.appendChild(section);
         }
     }
 
-    // ---- Inbox waiting notifications ----
+    _buildAgentItem(agent) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'agent-panel__agent-wrapper';
+
+        const item = document.createElement('div');
+        item.className = 'agent-panel__agent';
+
+        const status = agent.pending_confirmation ? 'waiting' : (agent.status || 'running');
+        const statusClass = `agent-panel__status-dot--${status}`;
+
+        // Label: prefer explicit label, fall back to short session ID
+        const label = agent.label
+            ? this.app.escapeHtml(agent.label)
+            : `<span class="agent-panel__agent-id">${(agent.session_id || '').substring(0, 8)}…</span>`;
+
+        const action = agent.current_action || (status === 'completed' ? 'Finished' : status === 'error' ? 'Error' : 'Idle');
+        const age = this.formatAge(agent.started_at);
+        const hasHistory = (agent.action_history || []).length > 0;
+        const isExpanded = this._expanded[agent.session_id];
+
+        let approveHtml = '';
+        if (agent.pending_confirmation) {
+            approveHtml = `<button class="agent-panel__approve-btn" data-session="${agent.session_id}" data-tcid="${agent.pending_confirmation.tool_call_id}">Approve</button>`;
+        }
+
+        const isStoppable = status === 'running' || status === 'waiting';
+        const stopHtml = isStoppable
+            ? `<button class="agent-panel__stop-btn" data-session="${agent.session_id}" title="Stop agent">■</button>`
+            : '';
+
+        const dropdownHtml = hasHistory
+            ? `<button class="agent-panel__dropdown-btn ${isExpanded ? 'agent-panel__dropdown-btn--open' : ''}" data-session="${agent.session_id}" title="${isExpanded ? 'Collapse' : 'Expand'} activity log">▾</button>`
+            : '';
+
+        item.innerHTML = `
+            <span class="agent-panel__status-dot ${statusClass}"></span>
+            <div class="agent-panel__agent-info">
+                <div class="agent-panel__agent-label">${label}</div>
+                <div class="agent-panel__agent-action">${this.app.escapeHtml(action)}</div>
+            </div>
+            <span class="agent-panel__agent-age">${age}</span>
+            ${approveHtml}
+            ${stopHtml}
+            ${dropdownHtml}
+        `;
+
+        // Click navigates to conversation
+        item.addEventListener('click', (e) => {
+            if (e.target.classList.contains('agent-panel__approve-btn')) return;
+            if (e.target.classList.contains('agent-panel__stop-btn')) return;
+            if (e.target.classList.contains('agent-panel__dropdown-btn')) return;
+            this.app.switchWindow('inbox');
+            this.app.selectSession(agent.session_id);
+        });
+
+        // Wire approve button
+        const btn = item.querySelector('.agent-panel__approve-btn');
+        if (btn) {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.approve(agent.session_id, agent.pending_confirmation.tool_call_id);
+            });
+        }
+
+        // Wire stop button
+        const stopBtn = item.querySelector('.agent-panel__stop-btn');
+        if (stopBtn) {
+            stopBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.stopAgent(agent.session_id);
+            });
+        }
+
+        // Wire dropdown toggle
+        const dropBtn = item.querySelector('.agent-panel__dropdown-btn');
+        if (dropBtn) {
+            dropBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._expanded[agent.session_id] = !this._expanded[agent.session_id];
+                this.renderPanel();
+            });
+        }
+
+        wrapper.appendChild(item);
+
+        // Inline activity log (expandable)
+        if (hasHistory && isExpanded) {
+            const log = document.createElement('div');
+            log.className = 'agent-panel__log';
+            const history = agent.action_history || [];
+            for (const entry of history) {
+                const row = document.createElement('div');
+                row.className = 'agent-panel__log-entry';
+                row.textContent = entry;
+                log.appendChild(row);
+            }
+            wrapper.appendChild(log);
+        }
+
+        return wrapper;
+    }
+
+    // ---- Inbox waiting + completion notifications ----
 
     renderInboxNotifications() {
-        const container = document.getElementById('inboxWaitingNotices');
+        let container = document.getElementById('inboxWaitingNotices');
         if (!container) {
-            // Create container if it doesn't exist yet
             const inboxList = document.getElementById('inboxList');
             if (!inboxList) return;
             const notices = document.createElement('div');
@@ -242,29 +313,34 @@ class AgentHud {
             inboxList.parentNode.insertBefore(notices, inboxList);
         }
 
-        const noticeContainer = document.getElementById('inboxWaitingNotices');
-        if (!noticeContainer) return;
+        container = document.getElementById('inboxWaitingNotices');
+        if (!container) return;
 
-        // Find agents that are waiting for user input
         const waitingAgents = Object.values(this.agents).filter(a => a.pending_confirmation);
+        const completedAgents = Object.values(this.agents).filter(
+            a => (a.status === 'completed' || a.status === 'error') && this._completedNotified.has(a.session_id)
+        );
 
-        if (waitingAgents.length === 0) {
-            noticeContainer.innerHTML = '';
+        if (waitingAgents.length === 0 && completedAgents.length === 0) {
+            container.innerHTML = '';
             return;
         }
 
-        noticeContainer.innerHTML = '';
+        container.innerHTML = '';
+
+        // Waiting notices
         for (const agent of waitingAgents) {
             const notice = document.createElement('div');
             notice.className = 'inbox-waiting-notice';
 
             const wsName = agent.workspace_name || 'Unknown';
             const toolName = agent.pending_confirmation?.tool_name || 'action';
+            const label = agent.label || `${(agent.session_id || '').substring(0, 8)}…`;
 
             notice.innerHTML = `
                 <span class="inbox-waiting-notice__dot"></span>
                 <span class="inbox-waiting-notice__text">
-                    <strong>${this.app.escapeHtml(wsName)}</strong> is waiting for approval on <strong>${this.app.escapeHtml(toolName)}</strong>
+                    <strong>${this.app.escapeHtml(label)}</strong> is waiting for approval on <strong>${this.app.escapeHtml(toolName)}</strong>
                 </span>
                 <span class="inbox-waiting-notice__action">View →</span>
             `;
@@ -274,7 +350,37 @@ class AgentHud {
                 this.app.selectSession(agent.session_id);
             });
 
-            noticeContainer.appendChild(notice);
+            container.appendChild(notice);
+        }
+
+        // Completion notices
+        for (const agent of completedAgents) {
+            const notice = document.createElement('div');
+            notice.className = 'inbox-completed-notice';
+            const label = agent.label || `${(agent.session_id || '').substring(0, 8)}…`;
+            const isError = agent.status === 'error';
+
+            notice.innerHTML = `
+                <span class="inbox-completed-notice__dot ${isError ? 'inbox-completed-notice__dot--error' : ''}"></span>
+                <span class="inbox-completed-notice__text">
+                    <strong>${this.app.escapeHtml(label)}</strong> ${isError ? 'encountered an error' : 'finished'}
+                </span>
+                <span class="inbox-completed-notice__dismiss" data-session="${agent.session_id}" title="Dismiss">✕</span>
+            `;
+
+            notice.querySelector('.inbox-completed-notice__dismiss').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._completedNotified.delete(agent.session_id);
+                this.renderInboxNotifications();
+            });
+
+            notice.addEventListener('click', (e) => {
+                if (e.target.classList.contains('inbox-completed-notice__dismiss')) return;
+                this.app.switchWindow('inbox');
+                this.app.selectSession(agent.session_id);
+            });
+
+            container.appendChild(notice);
         }
     }
 
@@ -292,6 +398,14 @@ class AgentHud {
             return `${hours}h`;
         } catch {
             return '';
+        }
+    }
+
+    async stopAgent(sessionId) {
+        try {
+            await this.app.apiFetch(`/api/agents/${sessionId}/stop`, { method: 'POST' });
+        } catch (e) {
+            console.error('HUD stop failed:', e);
         }
     }
 

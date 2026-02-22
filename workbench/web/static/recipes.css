@@ -402,6 +402,49 @@
     cursor: not-allowed;
 }
 
+.recipe-edit-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.recipe-edit-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+}
+
+.recipe-deploy-btn {
+    padding: 8px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    border: none;
+}
+
+.recipe-deploy-btn:hover {
+    filter: brightness(1.1);
+}
+
+.recipe-deploy-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.recipe-deploy-btn--success {
+    background: var(--status-connected);
+}
+
 .recipe-stop-btn {
     padding: 8px 20px;
     font-size: 13px;

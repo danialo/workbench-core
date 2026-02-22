@@ -219,8 +219,14 @@ class AgentManagerApp {
             this.createSession();
         });
 
-        // Send message
-        this.elSendBtn.addEventListener('click', () => this.sendMessage());
+        // Send message (or stop if streaming)
+        this.elSendBtn.addEventListener('click', () => {
+            if (this.isStreaming && this._streamAbortController) {
+                this._streamAbortController.abort();
+            } else {
+                this.sendMessage();
+            }
+        });
         this.elMessageInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -683,6 +689,7 @@ class AgentManagerApp {
         const contentEl = assistantDiv.querySelector('.message__content');
 
         // Show streaming indicator
+        this._streamAbortController = new AbortController();
         this.setStreaming(true);
 
         try {
@@ -694,6 +701,7 @@ class AgentManagerApp {
                     ...(this.authToken ? {'Authorization': `Bearer ${this.authToken}`} : {}),
                 },
                 body: JSON.stringify({ content }),
+                signal: this._streamAbortController.signal,
             });
 
             if (!response.ok) {
@@ -741,9 +749,14 @@ class AgentManagerApp {
                 }
             }
         } catch (err) {
-            console.error('Streaming error:', err);
-            this.appendMessage('error', 'Connection lost during streaming');
+            if (err.name === 'AbortError') {
+                // User stopped the stream — not an error
+            } else {
+                console.error('Streaming error:', err);
+                this.appendMessage('error', 'Connection lost during streaming');
+            }
         } finally {
+            this._streamAbortController = null;
             this.setStreaming(false);
         }
     }
@@ -1029,6 +1042,18 @@ class AgentManagerApp {
         const indicator = document.getElementById('streamingIndicator');
         if (indicator) {
             indicator.style.display = active ? 'flex' : 'none';
+        }
+        // Toggle Send ↔ Stop
+        if (this.elSendBtn) {
+            if (active) {
+                this.elSendBtn.textContent = '■';
+                this.elSendBtn.title = 'Stop';
+                this.elSendBtn.classList.add('input-box__send-btn--stop');
+            } else {
+                this.elSendBtn.textContent = '➤';
+                this.elSendBtn.title = 'Send';
+                this.elSendBtn.classList.remove('input-box__send-btn--stop');
+            }
         }
         this.updateFollowAlongButton();
     }
