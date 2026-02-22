@@ -79,8 +79,15 @@ class EditorWindow {
             exec: () => this.saveFile(),
         });
 
-        // Wire sidebar resize
+        // Wire resize handles
         this._initSidebarResize();
+        this._initSplitResize();
+
+        // Wire new file button
+        const btnNew = document.getElementById('editorBtnNewFile');
+        if (btnNew) {
+            btnNew.addEventListener('click', () => this.createNewFile());
+        }
 
         // Wire go-up button
         const btnUp = document.getElementById('editorBtnUp');
@@ -187,7 +194,31 @@ class EditorWindow {
         return icons[ext] || '📄';
     }
 
-    // ---- File Open/Save ----
+    // ---- File Create/Open/Save ----
+
+    async createNewFile() {
+        if (!this.currentPath) return;
+        const name = prompt('New file name (e.g. notes.md):');
+        if (!name || !name.trim()) return;
+        const clean = name.trim();
+        if (/[/\0]/.test(clean) || clean === '.' || clean === '..') {
+            alert('Invalid file name');
+            return;
+        }
+
+        const filePath = this.currentPath + '/' + clean;
+        try {
+            await this.app.apiFetch('/api/files/write', {
+                method: 'PUT',
+                body: JSON.stringify({ path: filePath, content: '' }),
+            });
+            this.loadFileTree(this.currentPath);
+            this.openFile(filePath, name.trim());
+        } catch (e) {
+            console.error('Failed to create file:', e);
+            alert('Failed to create file: ' + (e.message || e));
+        }
+    }
 
     async openFile(filePath, fileName) {
         // Check if already open
@@ -242,12 +273,15 @@ class EditorWindow {
         // Markdown: show rendered preview, hide code editor by default
         const aceEl = document.getElementById('editorAce');
         const preview = document.getElementById('editorPreview');
+        const splitHandle = document.getElementById('editorSplitHandle');
         if (this._isMarkdown()) {
             if (preview) { preview.style.display = 'flex'; this.renderPreview(); }
             if (aceEl) aceEl.style.display = 'none';
+            if (splitHandle) splitHandle.style.display = 'none';
         } else {
             if (preview) preview.style.display = 'none';
             if (aceEl) aceEl.style.display = 'block';
+            if (splitHandle) splitHandle.style.display = 'none';
         }
 
         this.renderTabs();
@@ -370,19 +404,62 @@ class EditorWindow {
 
     toggleCode() {
         const aceEl = document.getElementById('editorAce');
+        const splitHandle = document.getElementById('editorSplitHandle');
         if (!aceEl) return;
 
         if (aceEl.style.display === 'none') {
+            // Reset to default 50/50 flex split
+            aceEl.style.flex = '1';
+            aceEl.style.width = '';
             aceEl.style.display = 'block';
+            if (splitHandle) splitHandle.style.display = 'block';
             if (this.ace) this.ace.resize();
             this.ace.focus();
         } else {
             aceEl.style.display = 'none';
+            if (splitHandle) splitHandle.style.display = 'none';
         }
         this.renderTabs();
     }
 
     // ---- Sidebar Resize ----
+
+    _initSplitResize() {
+        const handle = document.getElementById('editorSplitHandle');
+        if (!handle) return;
+
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const aceEl = document.getElementById('editorAce');
+            const preview = document.getElementById('editorPreview');
+            const area = document.querySelector('.editor-window__editor-area');
+            if (!aceEl || !preview || !area) return;
+
+            const startX = e.clientX;
+            const areaWidth = area.offsetWidth;
+            const startAceWidth = aceEl.offsetWidth;
+
+            handle.classList.add('editor-window__split-handle--active');
+
+            const onMove = (ev) => {
+                const delta = ev.clientX - startX;
+                const newAceWidth = Math.max(100, Math.min(areaWidth - 100, startAceWidth + delta));
+                aceEl.style.flex = 'none';
+                aceEl.style.width = newAceWidth + 'px';
+                preview.style.flex = '1';
+                if (this.ace) this.ace.resize();
+            };
+
+            const onUp = () => {
+                handle.classList.remove('editor-window__split-handle--active');
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    }
 
     _initSidebarResize() {
         const handle = document.getElementById('editorResizeHandle');

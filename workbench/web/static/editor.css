@@ -257,6 +257,21 @@
     border-right: 1px solid var(--border-subtle) !important;
 }
 
+/* ---- Split resize handle (between code and preview) ---- */
+
+.editor-window__split-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+    transition: background var(--transition-fast);
+}
+
+.editor-window__split-handle:hover,
+.editor-window__split-handle--active {
+    background: var(--accent-primary);
+}
+
 /* ---- Markdown Preview ---- */
 
 .editor-window__preview {

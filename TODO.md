@@ -60,6 +60,31 @@
 - [ ] Investigation timeline / activity log
 - [ ] Export investigation summary
 
+## Editor Window
+
+### Done
+- [x] Ace editor (vendored, BSD) with one_dark theme
+- [x] File tree sidebar with directory browsing
+- [x] Tabbed editing with dirty indicators
+- [x] Ctrl+S save with CSRF
+- [x] markdown-it live preview (rendered view default for .md)
+- [x] Show/Hide Code toggle for split view
+- [x] Hidden files toggle (.*) with localStorage persistence
+- [x] File API (list, read, write) with path safety
+- [x] Resizable sidebar + split panes
+
+### Remaining
+- [ ] **Chat integration** — highlight text in rendered markdown, right-click or button to "Ask about this" → sends selection + context to the default LLM in a new or existing conversation. Bridge between editor and inbox chat
+- [ ] **Inline Q&A** — highlight in preview, ask question, get answer rendered inline (tooltip or sidebar) without leaving editor
+- [ ] Create new file / rename / delete from file tree
+- [ ] File search (fuzzy find across workspace)
+- [ ] Syntax highlighting for more languages (add Ace modes as needed)
+- [ ] Pandoc export (md → docx, md → pdf)
+- [ ] Recent files list
+- [ ] **Layout persistence** — save per-file or per-workspace editor layout (sidebar width, split ratio, code/preview visibility, open tabs) to a config file. Restore on re-open
+- [ ] Multi-cursor editing
+- [ ] Find & replace within file
+
 ## Evidence Window
 
 ### Done

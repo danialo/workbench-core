@@ -731,6 +731,8 @@ def create_app(
 
         if not file_path:
             raise HTTPException(400, "path is required")
+        if len(content) > 5 * 1024 * 1024:
+            raise HTTPException(400, "Content too large (max 5MB)")
 
         try:
             resolved = Path(file_path).expanduser().resolve()
@@ -739,6 +741,8 @@ def create_app(
             if not str(resolved).startswith(str(home)):
                 raise HTTPException(403, "Cannot write outside home directory")
 
+            if resolved.is_dir():
+                raise HTTPException(400, f"Path is a directory: {file_path}")
             resolved.parent.mkdir(parents=True, exist_ok=True)
             resolved.write_text(content, encoding="utf-8")
             return {"path": str(resolved), "size": len(content)}
