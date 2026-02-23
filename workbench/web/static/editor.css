@@ -231,6 +231,22 @@
     color: var(--status-error);
 }
 
+.editor-tab__actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+}
+
+.editor-tab--save {
+    color: var(--accent-primary);
+    font-weight: 500;
+}
+
+.editor-tab--save:hover {
+    background: var(--accent-dim);
+}
+
 /* ---- Editor + Preview split ---- */
 
 .editor-window__editor-area {

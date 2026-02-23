@@ -64,11 +64,10 @@ class EditorWindow {
                     this.renderTabs();
                 }
             }
-            // Live preview update (only when preview is visible)
+            // Live preview update (instant)
             const preview = document.getElementById('editorPreview');
-            if (preview && preview.style.display !== 'none' && this._isMarkdown()) {
-                clearTimeout(this._previewDebounce);
-                this._previewDebounce = setTimeout(() => this.renderPreview(), 300);
+            if (preview && preview.style.display !== 'none') {
+                this.renderPreview();
             }
         });
 
@@ -200,12 +199,11 @@ class EditorWindow {
         if (!this.currentPath) return;
         const name = prompt('New file name (e.g. notes.md):');
         if (!name || !name.trim()) return;
-        const clean = name.trim();
+        let clean = name.trim();
         if (/[/\0]/.test(clean) || clean === '.' || clean === '..') {
             alert('Invalid file name');
             return;
         }
-
         const filePath = this.currentPath + '/' + clean;
         try {
             await this.app.apiFetch('/api/files/write', {
@@ -213,18 +211,18 @@ class EditorWindow {
                 body: JSON.stringify({ path: filePath, content: '' }),
             });
             this.loadFileTree(this.currentPath);
-            this.openFile(filePath, name.trim());
+            this.openFile(filePath, clean, { editMode: true });
         } catch (e) {
             console.error('Failed to create file:', e);
             alert('Failed to create file: ' + (e.message || e));
         }
     }
 
-    async openFile(filePath, fileName) {
+    async openFile(filePath, fileName, opts = {}) {
         // Check if already open
         const existing = this.openFiles.findIndex(f => f.path === filePath);
         if (existing >= 0) {
-            this.switchToTab(existing);
+            this.switchToTab(existing, opts);
             return;
         }
 
@@ -240,13 +238,13 @@ class EditorWindow {
                 dirty: false,
             });
 
-            this.switchToTab(this.openFiles.length - 1);
+            this.switchToTab(this.openFiles.length - 1, opts);
         } catch (e) {
             console.error('Failed to open file:', e);
         }
     }
 
-    switchToTab(index) {
+    switchToTab(index, opts = {}) {
         if (index < 0 || index >= this.openFiles.length) return;
 
         // Save current content if switching away
@@ -270,19 +268,14 @@ class EditorWindow {
         if (statusFile) statusFile.textContent = file.path.replace(/^\/home\/[^/]+/, '~');
         if (statusLang) statusLang.textContent = file.language || 'text';
 
-        // Markdown: show rendered preview, hide code editor by default
+        // Layout: always code + preview side by side
         const aceEl = document.getElementById('editorAce');
         const preview = document.getElementById('editorPreview');
         const splitHandle = document.getElementById('editorSplitHandle');
-        if (this._isMarkdown()) {
-            if (preview) { preview.style.display = 'flex'; this.renderPreview(); }
-            if (aceEl) aceEl.style.display = 'none';
-            if (splitHandle) splitHandle.style.display = 'none';
-        } else {
-            if (preview) preview.style.display = 'none';
-            if (aceEl) aceEl.style.display = 'block';
-            if (splitHandle) splitHandle.style.display = 'none';
-        }
+        if (aceEl) { aceEl.style.flex = '1'; aceEl.style.width = ''; aceEl.style.display = 'block'; }
+        if (preview) { preview.style.display = 'flex'; this.renderPreview(); }
+        if (splitHandle) splitHandle.style.display = 'block';
+        if (this.ace) this.ace.resize();
 
         this.renderTabs();
 
@@ -374,15 +367,41 @@ class EditorWindow {
             container.appendChild(tab);
         }
 
-        // Code toggle (markdown files only — rendered view is default)
-        if (this.activeFileIndex >= 0 && this._isMarkdown()) {
-            const toggle = document.createElement('div');
-            toggle.className = 'editor-tab editor-tab--toggle';
+        // Right-side actions
+        if (this.activeFileIndex >= 0) {
+            const actions = document.createElement('div');
+            actions.className = 'editor-tab__actions';
+
+            // Code + Preview toggles
             const aceEl = document.getElementById('editorAce');
+            const preview = document.getElementById('editorPreview');
             const codeVisible = aceEl && aceEl.style.display !== 'none';
-            toggle.textContent = codeVisible ? 'Hide Code' : 'Show Code';
-            toggle.addEventListener('click', () => this.toggleCode());
-            container.appendChild(toggle);
+            const previewVisible = preview && preview.style.display !== 'none';
+
+            const codeToggle = document.createElement('div');
+            codeToggle.className = 'editor-tab editor-tab--toggle';
+            codeToggle.textContent = codeVisible ? 'Hide Code' : 'Show Code';
+            codeToggle.addEventListener('click', () => this.toggleCode());
+            actions.appendChild(codeToggle);
+
+            const previewToggle = document.createElement('div');
+            previewToggle.className = 'editor-tab editor-tab--toggle';
+            previewToggle.textContent = previewVisible ? 'Hide Preview' : 'Show Preview';
+            previewToggle.addEventListener('click', () => this.togglePreview());
+            actions.appendChild(previewToggle);
+
+            // Save button (shows when dirty)
+            const file = this.openFiles[this.activeFileIndex];
+            if (file.dirty) {
+                const saveBtn = document.createElement('div');
+                saveBtn.className = 'editor-tab editor-tab--save';
+                saveBtn.textContent = 'Save';
+                saveBtn.title = 'Ctrl+S';
+                saveBtn.addEventListener('click', () => this.saveFile());
+                actions.appendChild(saveBtn);
+            }
+
+            container.appendChild(actions);
         }
     }
 
@@ -405,20 +424,38 @@ class EditorWindow {
     toggleCode() {
         const aceEl = document.getElementById('editorAce');
         const splitHandle = document.getElementById('editorSplitHandle');
+        const preview = document.getElementById('editorPreview');
         if (!aceEl) return;
 
         if (aceEl.style.display === 'none') {
-            // Reset to default 50/50 flex split
             aceEl.style.flex = '1';
             aceEl.style.width = '';
             aceEl.style.display = 'block';
-            if (splitHandle) splitHandle.style.display = 'block';
+            if (splitHandle && preview && preview.style.display !== 'none') splitHandle.style.display = 'block';
             if (this.ace) this.ace.resize();
             this.ace.focus();
         } else {
             aceEl.style.display = 'none';
             if (splitHandle) splitHandle.style.display = 'none';
         }
+        this.renderTabs();
+    }
+
+    togglePreview() {
+        const preview = document.getElementById('editorPreview');
+        const splitHandle = document.getElementById('editorSplitHandle');
+        const aceEl = document.getElementById('editorAce');
+        if (!preview) return;
+
+        if (preview.style.display === 'none') {
+            preview.style.display = 'flex';
+            this.renderPreview();
+            if (splitHandle && aceEl && aceEl.style.display !== 'none') splitHandle.style.display = 'block';
+        } else {
+            preview.style.display = 'none';
+            if (splitHandle) splitHandle.style.display = 'none';
+        }
+        if (this.ace) this.ace.resize();
         this.renderTabs();
     }
 
