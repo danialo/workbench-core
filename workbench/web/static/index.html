@@ -518,6 +518,7 @@
                     <button class="settings-panel__nav-item settings-panel__nav-item--active" data-settings-tab="general">General</button>
                     <button class="settings-panel__nav-item" data-settings-tab="llm">LLM / Providers</button>
                     <button class="settings-panel__nav-item" data-settings-tab="agents">Agents</button>
+                    <button class="settings-panel__nav-item" data-settings-tab="mcp">MCP Servers</button>
                     <button class="settings-panel__nav-item" data-settings-tab="integrations">Integrations</button>
                     <button class="settings-panel__nav-item" data-settings-tab="policy">Policy & Security</button>
                 </div>
@@ -541,6 +542,18 @@
                     <div class="settings-tab" id="settingsTabAgents" style="display:none">
                         <h3 class="settings-tab__heading">Agents</h3>
                         <p class="settings-tab__placeholder">Agent registry, default configs, skill assignments, and risk policies.</p>
+                    </div>
+                    <div class="settings-tab" id="settingsTabMcp" style="display:none">
+                        <div class="settings-tab__header-row">
+                            <div>
+                                <h3 class="settings-tab__heading">MCP Servers</h3>
+                                <p class="settings-tab__subtitle">Connect to external MCP servers and import their tools.</p>
+                            </div>
+                            <button class="settings-mcp__add-btn" id="btnAddMcpServer" title="Add MCP server">+</button>
+                        </div>
+                        <div class="settings-mcp-servers" id="settingsMcpServers">
+                            <div class="settings-mcp__loading">Loading servers...</div>
+                        </div>
                     </div>
                     <div class="settings-tab" id="settingsTabIntegrations" style="display:none">
                         <h3 class="settings-tab__heading">Integrations</h3>

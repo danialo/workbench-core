@@ -706,6 +706,232 @@ class AgentManagerApp {
         }
     }
 
+    // ---- MCP Settings ----
+
+    async fetchMcpServers() {
+        try {
+            this._mcpServersData = await this.apiFetch('/api/mcp/servers');
+        } catch (e) {
+            console.warn('Could not fetch MCP servers:', e);
+        }
+    }
+
+    renderMcpSettings() {
+        const container = document.getElementById('settingsMcpServers');
+        if (!container) return;
+
+        const addBtn = document.getElementById('btnAddMcpServer');
+        if (addBtn) addBtn.onclick = () => this.showMcpServerForm();
+
+        const data = this._mcpServersData;
+        if (!data || !data.servers) {
+            container.innerHTML = '<p class="settings-tab__placeholder">Loading servers...</p>';
+            return;
+        }
+
+        if (data.servers.length === 0) {
+            container.innerHTML = '<p class="settings-tab__placeholder">No MCP servers configured. Click + to add one.</p>';
+            return;
+        }
+
+        container.innerHTML = data.servers.map(s => {
+            const statusClass = s.status === 'connected' ? 'mcp-status--connected'
+                : s.status === 'degraded' ? 'mcp-status--degraded'
+                : s.status === 'misconfigured' ? 'mcp-status--error'
+                : 'mcp-status--stopped';
+            const envKeys = Object.keys(s.env || {});
+            return `
+                <div class="settings-mcp-card" data-mcp-server="${s.name}">
+                    <div class="settings-mcp-card__header">
+                        <div class="settings-mcp-card__name-row">
+                            <span class="settings-mcp-card__status-dot ${statusClass}" title="${s.status}"></span>
+                            <span class="settings-mcp-card__name">${s.name}</span>
+                            <span class="settings-mcp-card__badge settings-mcp-card__badge--${s.transport}">${s.transport.toUpperCase()}</span>
+                        </div>
+                        <div class="settings-mcp-card__actions">
+                            <button class="settings-provider-card__action-btn" data-action="edit" title="Edit">&#9998;</button>
+                            <button class="settings-provider-card__action-btn settings-provider-card__action-btn--delete" data-action="delete" title="Delete">&times;</button>
+                        </div>
+                    </div>
+                    <div class="settings-mcp-card__details">
+                        ${s.transport === 'stdio' ? `
+                            <div class="settings-provider-card__row">
+                                <span class="settings-provider-card__label">Command</span>
+                                <span class="settings-provider-card__value settings-provider-card__value--mono">${s.command} ${(s.args || []).join(' ')}</span>
+                            </div>
+                        ` : `
+                            <div class="settings-provider-card__row">
+                                <span class="settings-provider-card__label">URL</span>
+                                <span class="settings-provider-card__value settings-provider-card__value--mono">${s.url || '—'}</span>
+                            </div>
+                        `}
+                        <div class="settings-provider-card__row">
+                            <span class="settings-provider-card__label">Risk Level</span>
+                            <span class="settings-provider-card__value">${s.risk_level}</span>
+                        </div>
+                        <div class="settings-provider-card__row">
+                            <span class="settings-provider-card__label">Tools</span>
+                            <span class="settings-provider-card__value">${s.tools_count} registered</span>
+                        </div>
+                        ${envKeys.length > 0 ? `
+                            <div class="settings-provider-card__row">
+                                <span class="settings-provider-card__label">Env</span>
+                                <span class="settings-provider-card__value settings-provider-card__value--mono">${envKeys.join(', ')}</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>`;
+        }).join('');
+
+        container.querySelectorAll('[data-action]').forEach(btn => {
+            const card = btn.closest('[data-mcp-server]');
+            const name = card?.dataset.mcpServer;
+            if (!name) return;
+            if (btn.dataset.action === 'edit') btn.onclick = () => this.showMcpServerForm(name);
+            else if (btn.dataset.action === 'delete') btn.onclick = () => this.deleteMcpServer(name);
+        });
+    }
+
+    showMcpServerForm(editName = null) {
+        const container = document.getElementById('settingsMcpServers');
+        if (!container) return;
+
+        let prefill = { name: '', transport: 'stdio', command: '', args: '', url: '', risk_level: 'READ_ONLY', timeout: 30, env: '' };
+        if (editName && this._mcpServersData) {
+            const existing = this._mcpServersData.servers.find(s => s.name === editName);
+            if (existing) {
+                prefill = {
+                    ...prefill,
+                    ...existing,
+                    args: (existing.args || []).join(' '),
+                    env: Object.entries(existing.env || {}).map(([k]) => `${k}=$${k}`).join(', '),
+                };
+            }
+        }
+        const isEdit = !!editName;
+
+        container.innerHTML = `
+            <div class="settings-provider-form">
+                <h4 class="settings-provider-form__title">${isEdit ? 'Edit' : 'Add'} MCP Server</h4>
+                <div class="settings-provider-form__error" id="mcpFormError" style="display:none"></div>
+                <div class="settings-provider-form__field">
+                    <label for="mcpFormName">Name</label>
+                    <input type="text" id="mcpFormName" value="${prefill.name}" ${isEdit ? 'readonly' : ''} placeholder="e.g. filesystem, github">
+                </div>
+                <div class="settings-provider-form__field">
+                    <label for="mcpFormTransport">Transport</label>
+                    <select id="mcpFormTransport">
+                        <option value="stdio" ${prefill.transport === 'stdio' ? 'selected' : ''}>stdio (local command)</option>
+                        <option value="sse" ${prefill.transport === 'sse' ? 'selected' : ''}>SSE (remote URL)</option>
+                    </select>
+                </div>
+                <div id="mcpFormStdioFields" ${prefill.transport !== 'stdio' ? 'style="display:none"' : ''}>
+                    <div class="settings-provider-form__field">
+                        <label for="mcpFormCommand">Command</label>
+                        <input type="text" id="mcpFormCommand" value="${prefill.command}" placeholder="e.g. npx, python, node">
+                    </div>
+                    <div class="settings-provider-form__field">
+                        <label for="mcpFormArgs">Arguments</label>
+                        <input type="text" id="mcpFormArgs" value="${prefill.args}" placeholder="e.g. -y @modelcontextprotocol/server-filesystem /tmp">
+                    </div>
+                    <div class="settings-provider-form__field">
+                        <label for="mcpFormEnv">Environment</label>
+                        <input type="text" id="mcpFormEnv" value="${prefill.env}" placeholder="e.g. GITHUB_TOKEN=$GITHUB_TOKEN">
+                        <span class="settings-provider-form__hint">Comma-separated KEY=value pairs. Use $VAR to resolve from environment.</span>
+                    </div>
+                </div>
+                <div id="mcpFormSseFields" ${prefill.transport !== 'sse' ? 'style="display:none"' : ''}>
+                    <div class="settings-provider-form__field">
+                        <label for="mcpFormUrl">Server URL</label>
+                        <input type="text" id="mcpFormUrl" value="${prefill.url}" placeholder="e.g. http://10.0.0.5:8765/sse">
+                    </div>
+                </div>
+                <div class="settings-provider-form__row">
+                    <div class="settings-provider-form__field">
+                        <label for="mcpFormRisk">Risk Level</label>
+                        <select id="mcpFormRisk">
+                            <option value="READ_ONLY" ${prefill.risk_level === 'READ_ONLY' ? 'selected' : ''}>READ_ONLY</option>
+                            <option value="WRITE" ${prefill.risk_level === 'WRITE' ? 'selected' : ''}>WRITE</option>
+                            <option value="DESTRUCTIVE" ${prefill.risk_level === 'DESTRUCTIVE' ? 'selected' : ''}>DESTRUCTIVE</option>
+                            <option value="SHELL" ${prefill.risk_level === 'SHELL' ? 'selected' : ''}>SHELL</option>
+                        </select>
+                    </div>
+                    <div class="settings-provider-form__field">
+                        <label for="mcpFormTimeout">Timeout (s)</label>
+                        <input type="number" id="mcpFormTimeout" value="${prefill.timeout}" min="1" max="300">
+                    </div>
+                </div>
+                <div class="settings-provider-form__actions">
+                    <button class="settings-provider-form__cancel" id="mcpFormCancel">Cancel</button>
+                    <button class="settings-provider-form__save" id="mcpFormSave">${isEdit ? 'Save' : 'Add Server'}</button>
+                </div>
+                <p class="settings-mcp__restart-note">Changes take effect after server restart.</p>
+            </div>`;
+
+        // Toggle stdio/sse fields on transport change
+        document.getElementById('mcpFormTransport').onchange = (e) => {
+            const isStdio = e.target.value === 'stdio';
+            document.getElementById('mcpFormStdioFields').style.display = isStdio ? '' : 'none';
+            document.getElementById('mcpFormSseFields').style.display = isStdio ? 'none' : '';
+        };
+
+        document.getElementById('mcpFormCancel').onclick = () => {
+            this.fetchMcpServers().then(() => this.renderMcpSettings());
+        };
+        document.getElementById('mcpFormSave').onclick = () => {
+            this.saveMcpServer(editName);
+        };
+    }
+
+    async saveMcpServer(editName) {
+        const errorEl = document.getElementById('mcpFormError');
+        const showError = (msg) => {
+            if (errorEl) { errorEl.textContent = msg; errorEl.style.display = 'block'; }
+        };
+
+        const name = document.getElementById('mcpFormName')?.value.trim();
+        const transport = document.getElementById('mcpFormTransport')?.value;
+        const command = document.getElementById('mcpFormCommand')?.value.trim();
+        const args = document.getElementById('mcpFormArgs')?.value.trim();
+        const env = document.getElementById('mcpFormEnv')?.value.trim();
+        const url = document.getElementById('mcpFormUrl')?.value.trim();
+        const risk_level = document.getElementById('mcpFormRisk')?.value;
+        const timeout = parseFloat(document.getElementById('mcpFormTimeout')?.value) || 30;
+
+        if (!name) { showError('Name is required.'); return; }
+        if (transport === 'stdio' && !command) { showError('Command is required for stdio transport.'); return; }
+        if (transport === 'sse' && !url) { showError('URL is required for SSE transport.'); return; }
+
+        const body = { name, transport, command, args, env, url, risk_level, timeout };
+
+        try {
+            const apiUrl = editName
+                ? `/api/mcp/servers/${encodeURIComponent(editName)}`
+                : '/api/mcp/servers';
+            const result = await this.apiFetch(apiUrl, {
+                method: editName ? 'PUT' : 'POST',
+                body: JSON.stringify(body),
+            });
+            await this.fetchMcpServers();
+            this.renderMcpSettings();
+        } catch (e) {
+            showError(e.message || 'Failed to save MCP server.');
+        }
+    }
+
+    async deleteMcpServer(name) {
+        if (!confirm(`Delete MCP server "${name}"? This requires a restart to take effect.`)) return;
+        try {
+            await this.apiFetch(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+                method: 'DELETE',
+            });
+            await this.fetchMcpServers();
+            this.renderMcpSettings();
+        } catch (e) {
+            console.error('Failed to delete MCP server:', e);
+        }
+    }
+
     // ---- Workspace Actions ----
 
     async switchWorkspace(workspaceId) {
@@ -1637,7 +1863,7 @@ class AgentManagerApp {
             btn.classList.toggle('settings-panel__nav-item--active', btn.dataset.settingsTab === tabName);
         });
         // Show/hide tab content
-        const idMap = { general: 'settingsTabGeneral', llm: 'settingsTabLlm', agents: 'settingsTabAgents', integrations: 'settingsTabIntegrations', policy: 'settingsTabPolicy' };
+        const idMap = { general: 'settingsTabGeneral', llm: 'settingsTabLlm', mcp: 'settingsTabMcp', agents: 'settingsTabAgents', integrations: 'settingsTabIntegrations', policy: 'settingsTabPolicy' };
         Object.entries(idMap).forEach(([key, id]) => {
             const el = document.getElementById(id);
             if (el) el.style.display = key === tabName ? '' : 'none';
@@ -1646,6 +1872,11 @@ class AgentManagerApp {
         if (tabName === 'llm') {
             this.renderProvidersSettings(); // Wire button immediately
             this.fetchProviders().then(() => this.renderProvidersSettings());
+        }
+        // Populate MCP tab on open
+        if (tabName === 'mcp') {
+            this.renderMcpSettings();
+            this.fetchMcpServers().then(() => this.renderMcpSettings());
         }
     }
 

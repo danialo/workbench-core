@@ -95,6 +95,30 @@ session:
 # To expose only specific tools:
 #   wb mcp serve --tools run_shell,write_file,run_diagnostic
 
+# MCP clients — connect to external MCP servers and import their tools.
+# Tools appear in the registry as {server_name}__{tool_name}.
+# Risk level is set per-server (remote servers can't declare their own risk).
+# mcp_clients:
+#   servers:
+#     - name: filesystem
+#       transport: stdio
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+#       risk_level: WRITE
+#       timeout: 30.0
+#     - name: github
+#       transport: stdio
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+#       env:
+#         GITHUB_TOKEN: $GITHUB_TOKEN    # Resolved from env at startup
+#       risk_level: READ_ONLY
+#     - name: remote-wb
+#       transport: sse
+#       url: http://10.0.0.5:8765/sse
+#       risk_level: READ_ONLY
+#       ping_interval_seconds: 15.0
+
 # Named profiles — override any top-level key per environment.
 # Activate with: wb tui --profile production
 # profiles:

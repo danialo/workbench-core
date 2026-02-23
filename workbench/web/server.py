@@ -242,6 +242,7 @@ def create_app(
     # ---- Agent Registry ----
     agent_registry = AgentRegistry()
     app.state.agent_registry = agent_registry
+    app.state.mcp_manager = None
 
     # ---- Investigations DB path (used by investigations router) ----
     app.state.investigations_db_path = str(Path(db_path).expanduser())
@@ -259,6 +260,28 @@ def create_app(
     async def _init_document_store() -> None:
         await document_store.init()
         logger.info("Document store initialized: %s", documents_db_path)
+
+    @app.on_event("startup")
+    async def _start_mcp_clients() -> None:
+        """Start MCP client connections to external servers."""
+        if config is None or not config.mcp_clients.servers:
+            return
+        from workbench.mcp.client import MCPClientManager
+        mcp_manager = MCPClientManager()
+        app.state.mcp_manager = mcp_manager
+        await mcp_manager.start(registry, config.mcp_clients.servers)
+        logger.info(
+            "MCP client manager started: %d servers configured",
+            len(config.mcp_clients.servers),
+        )
+
+    @app.on_event("shutdown")
+    async def _stop_mcp_clients() -> None:
+        """Stop MCP client connections."""
+        mcp_manager = getattr(app.state, "mcp_manager", None)
+        if mcp_manager is not None:
+            await mcp_manager.stop()
+            logger.info("MCP client manager stopped")
 
     # ---- Include feature routers ----
     app.include_router(agents_router)
@@ -1260,6 +1283,170 @@ def create_app(
                 llm_router.set_active(llm_router.provider_names[0])
 
         return JSONResponse({"deleted": True, "name": name})
+
+    # --- MCP server endpoints ---
+
+    @app.get("/api/mcp/servers")
+    async def list_mcp_servers():
+        """List configured MCP servers with status."""
+        import yaml
+        # Read persisted config
+        cfg_path = _find_config_path()
+        persisted: list[dict] = []
+        if cfg_path:
+            raw = yaml.safe_load(cfg_path.read_text()) or {}
+            persisted = raw.get("mcp_clients", {}).get("servers", [])
+
+        # Merge with live status from manager
+        manager = getattr(app.state, "mcp_manager", None)
+        live_status = manager.server_status() if manager else {}
+
+        servers = []
+        for s in persisted:
+            name = s.get("name", "")
+            status_info = live_status.get(name, {})
+            servers.append({
+                "name": name,
+                "transport": s.get("transport", "stdio"),
+                "command": s.get("command", ""),
+                "args": s.get("args", []),
+                "url": s.get("url", ""),
+                "risk_level": s.get("risk_level", "READ_ONLY"),
+                "timeout": s.get("timeout", 30.0),
+                "env": {k: ("***" if v.startswith("$") else "***") for k, v in s.get("env", {}).items()},
+                "status": status_info.get("status", "stopped"),
+                "tools_count": status_info.get("tools_count", 0),
+            })
+
+        return JSONResponse({"servers": servers})
+
+    @app.post("/api/mcp/servers")
+    async def add_mcp_server(request: Request):
+        """Add a new MCP server to config. Requires restart to take effect."""
+        import yaml
+        body = await request.json()
+        name = body.get("name", "").strip()
+        if not name:
+            return JSONResponse({"error": "Name is required"}, status_code=400)
+
+        cfg_path = _find_config_path()
+        if not cfg_path:
+            return JSONResponse({"error": "No config file found"}, status_code=500)
+
+        raw = yaml.safe_load(cfg_path.read_text()) or {}
+        mcp_section = raw.setdefault("mcp_clients", {})
+        servers_list = mcp_section.setdefault("servers", [])
+
+        # Check for duplicate name
+        if any(s.get("name") == name for s in servers_list):
+            return JSONResponse({"error": f"Server '{name}' already exists"}, status_code=409)
+
+        entry = {"name": name, "transport": body.get("transport", "stdio")}
+        if entry["transport"] == "stdio":
+            entry["command"] = body.get("command", "")
+            args = body.get("args", "")
+            if isinstance(args, str):
+                entry["args"] = [a.strip() for a in args.split() if a.strip()] if args else []
+            else:
+                entry["args"] = args
+            env = body.get("env", {})
+            if isinstance(env, str):
+                # Parse "KEY=val, KEY2=val2" format
+                parsed = {}
+                for pair in env.split(","):
+                    pair = pair.strip()
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        parsed[k.strip()] = v.strip()
+                env = parsed
+            if env:
+                entry["env"] = env
+        else:
+            entry["url"] = body.get("url", "")
+
+        entry["risk_level"] = body.get("risk_level", "READ_ONLY")
+        timeout = body.get("timeout")
+        if timeout:
+            entry["timeout"] = float(timeout)
+
+        servers_list.append(entry)
+        cfg_path.write_text(yaml.dump(raw, default_flow_style=False, sort_keys=False))
+
+        return JSONResponse({"saved": True, "name": name, "restart_required": True})
+
+    @app.put("/api/mcp/servers/{name:path}")
+    async def update_mcp_server(name: str, request: Request):
+        """Update an MCP server config. Requires restart to take effect."""
+        import yaml
+        body = await request.json()
+        cfg_path = _find_config_path()
+        if not cfg_path:
+            return JSONResponse({"error": "No config file found"}, status_code=500)
+
+        raw = yaml.safe_load(cfg_path.read_text()) or {}
+        servers_list = raw.get("mcp_clients", {}).get("servers", [])
+
+        idx = next((i for i, s in enumerate(servers_list) if s.get("name") == name), None)
+        if idx is None:
+            return JSONResponse({"error": f"Server '{name}' not found"}, status_code=404)
+
+        entry = servers_list[idx]
+        entry["transport"] = body.get("transport", entry.get("transport", "stdio"))
+
+        if entry["transport"] == "stdio":
+            if "command" in body:
+                entry["command"] = body["command"]
+            args = body.get("args", entry.get("args", []))
+            if isinstance(args, str):
+                entry["args"] = [a.strip() for a in args.split() if a.strip()] if args else []
+            else:
+                entry["args"] = args
+            env = body.get("env", entry.get("env", {}))
+            if isinstance(env, str):
+                parsed = {}
+                for pair in env.split(","):
+                    pair = pair.strip()
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        parsed[k.strip()] = v.strip()
+                env = parsed
+            entry["env"] = env if env else {}
+            entry.pop("url", None)
+        else:
+            if "url" in body:
+                entry["url"] = body["url"]
+            entry.pop("command", None)
+            entry.pop("args", None)
+
+        if "risk_level" in body:
+            entry["risk_level"] = body["risk_level"]
+        if "timeout" in body and body["timeout"]:
+            entry["timeout"] = float(body["timeout"])
+
+        servers_list[idx] = entry
+        cfg_path.write_text(yaml.dump(raw, default_flow_style=False, sort_keys=False))
+
+        return JSONResponse({"saved": True, "name": name, "restart_required": True})
+
+    @app.delete("/api/mcp/servers/{name:path}")
+    async def delete_mcp_server(name: str, request: Request):
+        """Remove an MCP server from config. Requires restart to take effect."""
+        import yaml
+        cfg_path = _find_config_path()
+        if not cfg_path:
+            return JSONResponse({"error": "No config file found"}, status_code=500)
+
+        raw = yaml.safe_load(cfg_path.read_text()) or {}
+        servers_list = raw.get("mcp_clients", {}).get("servers", [])
+        new_list = [s for s in servers_list if s.get("name") != name]
+
+        if len(new_list) == len(servers_list):
+            return JSONResponse({"error": f"Server '{name}' not found"}, status_code=404)
+
+        raw.setdefault("mcp_clients", {})["servers"] = new_list
+        cfg_path.write_text(yaml.dump(raw, default_flow_style=False, sort_keys=False))
+
+        return JSONResponse({"deleted": True, "name": name, "restart_required": True})
 
     # --- Memory endpoints ---
 

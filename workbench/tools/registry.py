@@ -15,6 +15,10 @@ class ToolRegistry:
             raise ValueError(f"Tool already registered: {tool.name}")
         self._tools[tool.name] = tool
 
+    def unregister(self, name: str) -> bool:
+        """Remove a tool by name. Returns True if it existed."""
+        return self._tools.pop(name, None) is not None
+
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
 

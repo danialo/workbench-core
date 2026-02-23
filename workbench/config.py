@@ -72,6 +72,37 @@ class SessionConfig:
 
 
 @dataclass
+class MCPServerConfig:
+    name: str = ""
+    transport: str = "stdio"          # "stdio" or "sse"
+    command: str = ""                 # stdio: executable name
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    url: str = ""                     # sse: endpoint URL
+    headers: dict[str, str] = field(default_factory=dict)
+    risk_level: str = "READ_ONLY"     # ToolRisk name applied to all tools from this server
+    timeout: float = 30.0
+    call_concurrency: int = 1
+    acquire_timeout: float = 2.0
+    kill_grace_seconds: float = 1.0
+    kill_force_seconds: float = 1.0
+    stderr_lines_max: int = 200
+    stderr_log_level: str = "DEBUG"
+    stderr_rate_limit_per_sec: int = 50
+    stderr_line_max_chars: int = 2000
+    ping_interval_seconds: float = 15.0
+    ping_timeout_seconds: float = 5.0
+    stable_reset_seconds: float = 60.0
+    backoff_initial: float = 1.0
+    backoff_max: float = 60.0
+
+
+@dataclass
+class MCPClientsConfig:
+    servers: list[MCPServerConfig] = field(default_factory=list)
+
+
+@dataclass
 class BackendsConfig:
     ssh_hosts: list[dict] = field(default_factory=list)
 
@@ -89,6 +120,7 @@ class WorkbenchConfig:
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     backends: BackendsConfig = field(default_factory=BackendsConfig)
+    mcp_clients: MCPClientsConfig = field(default_factory=MCPClientsConfig)
     profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # ----- per-session overrides (applied last) ----
@@ -291,6 +323,13 @@ def load_config(
         plugins=_build_section(PluginsConfig, raw.get("plugins", {})),
         session=_build_section(SessionConfig, raw.get("session", {})),
         backends=_build_section(BackendsConfig, raw.get("backends", {})),
+        mcp_clients=MCPClientsConfig(
+            servers=[
+                _build_section(MCPServerConfig, s)
+                for s in raw.get("mcp_clients", {}).get("servers", [])
+                if isinstance(s, dict)
+            ]
+        ),
         profiles=raw.get("profiles", {}),
     )
 

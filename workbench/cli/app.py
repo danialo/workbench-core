@@ -801,7 +801,14 @@ async def _build_tool_stack(profile: str | None = None):
         audit_keep_files=cfg.policy.audit_keep_files,
     )
 
-    return cfg, registry, backend_router, policy
+    # MCP client connections (external MCP servers)
+    mcp_manager = None
+    if cfg.mcp_clients.servers:
+        from workbench.mcp.client import MCPClientManager
+        mcp_manager = MCPClientManager()
+        await mcp_manager.start(registry, cfg.mcp_clients.servers)
+
+    return cfg, registry, backend_router, policy, mcp_manager
 
 
 # ---------------------------------------------------------------------------
@@ -836,43 +843,47 @@ def mcp_serve(
     async def _run():
         from workbench.mcp.server import create_mcp_server, run_stdio
 
-        cfg, registry, backend_router, policy = await _build_tool_stack(profile=profile)
+        cfg, registry, backend_router, policy, mcp_manager = await _build_tool_stack(profile=profile)
         server = create_mcp_server(registry, policy, tool_filter=tool_filter)
 
-        if transport == "sse":
-            import uvicorn
-            from starlette.applications import Starlette
-            from starlette.responses import Response
-            from starlette.routing import Mount, Route
-            from mcp.server.sse import SseServerTransport
+        try:
+            if transport == "sse":
+                import uvicorn
+                from starlette.applications import Starlette
+                from starlette.responses import Response
+                from starlette.routing import Mount, Route
+                from mcp.server.sse import SseServerTransport
 
-            sse_transport = SseServerTransport("/messages/")
+                sse_transport = SseServerTransport("/messages/")
 
-            async def handle_sse(request):
-                async with sse_transport.connect_sse(
-                    request.scope, request.receive, request._send
-                ) as streams:
-                    await server.run(streams[0], streams[1], server.create_initialization_options())
-                return Response()
+                async def handle_sse(request):
+                    async with sse_transport.connect_sse(
+                        request.scope, request.receive, request._send
+                    ) as streams:
+                        await server.run(streams[0], streams[1], server.create_initialization_options())
+                    return Response()
 
-            starlette_app = Starlette(routes=[
-                Route("/sse", endpoint=handle_sse),
-                Mount("/messages/", app=sse_transport.handle_post_message),
-            ])
+                starlette_app = Starlette(routes=[
+                    Route("/sse", endpoint=handle_sse),
+                    Mount("/messages/", app=sse_transport.handle_post_message),
+                ])
 
-            console.print(f"[bold]MCP Server[/bold] (SSE) on port {sse_port}", file=sys.stderr)
-            console.print(f"[dim]{len(registry.list())} tools registered[/dim]", file=sys.stderr)
-            config = uvicorn.Config(starlette_app, host="0.0.0.0", port=sse_port)
-            uv_server = uvicorn.Server(config)
-            await uv_server.serve()
-        else:
-            # stdio — no console output (stdout is the MCP channel)
-            logging.basicConfig(
-                level=logging.INFO,
-                format="%(levelname)s %(name)s: %(message)s",
-                stream=sys.stderr,
-            )
-            await run_stdio(server)
+                console.print(f"[bold]MCP Server[/bold] (SSE) on port {sse_port}", file=sys.stderr)
+                console.print(f"[dim]{len(registry.list())} tools registered[/dim]", file=sys.stderr)
+                config = uvicorn.Config(starlette_app, host="0.0.0.0", port=sse_port)
+                uv_server = uvicorn.Server(config)
+                await uv_server.serve()
+            else:
+                # stdio — no console output (stdout is the MCP channel)
+                logging.basicConfig(
+                    level=logging.INFO,
+                    format="%(levelname)s %(name)s: %(message)s",
+                    stream=sys.stderr,
+                )
+                await run_stdio(server)
+        finally:
+            if mcp_manager:
+                await mcp_manager.stop()
 
     asyncio.run(_run())
 
@@ -883,12 +894,46 @@ def mcp_list(
 ):
     """List tools that would be exposed via MCP."""
     async def _run():
-        cfg, registry, _, policy = await _build_tool_stack(profile=profile)
+        cfg, registry, _, policy, _ = await _build_tool_stack(profile=profile)
         tools = registry.list()
         console.print(f"[bold]{len(tools)} tools available for MCP:[/bold]\n")
         for t in tools:
             risk = t.risk_level.name
             console.print(f"  [cyan]{t.name:<30}[/cyan] [{risk:<12}] {t.description[:60]}")
+
+    asyncio.run(_run())
+
+
+@mcp_app.command("list-servers")
+def mcp_list_servers(
+    profile: Optional[str] = typer.Option(None, help="Config profile"),
+):
+    """List configured MCP client servers and their tools."""
+    async def _run():
+        cfg, registry, _, policy, mcp_manager = await _build_tool_stack(profile=profile)
+        try:
+            if not cfg.mcp_clients.servers:
+                console.print("[dim]No MCP servers configured.[/dim]")
+                console.print("[dim]Add servers under mcp_clients.servers in workbench.yaml[/dim]")
+                return
+
+            if mcp_manager is None:
+                console.print("[yellow]MCP client manager not started[/yellow]")
+                return
+
+            status = mcp_manager.server_status()
+            for name, info in status.items():
+                st = info.get("status", "unknown")
+                color = {"connected": "green", "degraded": "yellow", "misconfigured": "red"}.get(st, "dim")
+                console.print(f"\n  [{color}]{name}[/{color}] ({st})")
+                console.print(f"    Tools: {info.get('tools_count', 0)}")
+                if info.get("stderr_tail"):
+                    last_lines = info["stderr_tail"][-3:]
+                    for line in last_lines:
+                        console.print(f"    [dim]stderr: {line}[/dim]")
+        finally:
+            if mcp_manager:
+                await mcp_manager.stop()
 
     asyncio.run(_run())
 
