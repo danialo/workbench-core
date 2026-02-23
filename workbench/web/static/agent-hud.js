@@ -132,6 +132,7 @@ class AgentHud {
         this.panelOpen = true;
         panel.style.display = 'flex';
         this.renderPanel();
+        this.app.saveUIState();
     }
 
     closePanel() {
@@ -143,6 +144,7 @@ class AgentHud {
         panel.style.display = 'none';
         const inputArea = document.getElementById('agentPanelInput');
         if (inputArea) inputArea.style.display = 'none';
+        this.app.saveUIState();
     }
 
     // ---- Resize handle ----
@@ -171,6 +173,7 @@ class AgentHud {
             if (handle) handle.classList.remove('agent-panel__resize-handle--active');
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
+            this.app.saveUIState();
         };
 
         document.addEventListener('mousemove', onMove);

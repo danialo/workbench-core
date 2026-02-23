@@ -51,14 +51,88 @@ class AgentManagerApp {
             this.fetchSessions(),
             this.fetchProviders(),
         ]);
+        this.restoreUIState();
         this.render();
         this.agentHud.start();
         await this.contextBar.init();
         this.triageWindow.bindEvents();
         this.recipeWindow.bindEvents();
         this.initSidebarResize();
-        // Default to inbox view on load
-        this.switchView('inbox');
+    }
+
+    // ---- UI State Persistence ----
+
+    saveUIState() {
+        try {
+            const state = {
+                closedWorkspaces: [...this.closedWorkspaces],
+                expandedWorkspaces: [...this.expandedWorkspaces],
+                activeWorkspaceId: this.activeWorkspaceId,
+                activeWindow: this.activeWindow,
+                currentSessionId: this.currentSessionId,
+                agentPanelOpen: this.agentHud?.panelOpen || false,
+                sidebarWidth: document.getElementById('sidebar')?.style.width || '',
+                agentPanelWidth: document.getElementById('agentPanel')?.style.width || '',
+            };
+            localStorage.setItem('wb_ui_state', JSON.stringify(state));
+        } catch (e) {
+            // localStorage may be full or unavailable
+        }
+    }
+
+    restoreUIState() {
+        try {
+            const raw = localStorage.getItem('wb_ui_state');
+            if (!raw) return;
+            const state = JSON.parse(raw);
+
+            // Restore closed/expanded workspaces
+            if (Array.isArray(state.closedWorkspaces)) {
+                this.closedWorkspaces = new Set(state.closedWorkspaces);
+            }
+            if (Array.isArray(state.expandedWorkspaces)) {
+                this.expandedWorkspaces = new Set(state.expandedWorkspaces);
+            }
+
+            // Restore active workspace (verify it still exists)
+            if (state.activeWorkspaceId) {
+                const exists = state.activeWorkspaceId === 'global'
+                    || this.workspaces.some(ws => ws.workspace_id === state.activeWorkspaceId);
+                if (exists) this.activeWorkspaceId = state.activeWorkspaceId;
+            }
+
+            // Restore active window tab
+            if (state.activeWindow) {
+                this.switchWindow(state.activeWindow);
+            }
+
+            // Restore active session
+            if (state.currentSessionId) {
+                const sessionExists = this.sessions.some(s => s.session_id === state.currentSessionId);
+                if (sessionExists) {
+                    this.selectSession(state.currentSessionId);
+                }
+            }
+
+            // Restore agent panel
+            if (state.agentPanelOpen) {
+                this.agentHud.openPanel();
+            }
+
+            // Restore sidebar width
+            if (state.sidebarWidth) {
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) sidebar.style.width = state.sidebarWidth;
+            }
+
+            // Restore agent panel width
+            if (state.agentPanelWidth) {
+                const panel = document.getElementById('agentPanel');
+                if (panel) panel.style.width = state.agentPanelWidth;
+            }
+        } catch (e) {
+            // Corrupted state — ignore
+        }
     }
 
     // ---- Element References ----
@@ -149,7 +223,7 @@ class AgentManagerApp {
         });
         this.elMenuOpenWorkspace.addEventListener('click', () => {
             this.closeFileMenu();
-            this.openNewWorkspaceDialog();
+            this.openWorkspaceChooser();
         });
         // Close menu on outside click
         document.addEventListener('click', (e) => {
@@ -661,6 +735,7 @@ class AgentManagerApp {
         if (this.contextBar) {
             this.contextBar.loadPills();
         }
+        this.saveUIState();
     }
 
     // ---- File Menu ----
@@ -680,7 +755,93 @@ class AgentManagerApp {
         this.elMenuFile.classList.remove('top-bar__menu-item--active');
     }
 
+    openWorkspaceChooser() {
+        // If there are closed workspaces, show a chooser to reopen them
+        const closed = this.workspaces.filter(ws =>
+            ws.type === 'project' && this.closedWorkspaces.has(ws.workspace_id)
+        );
+        if (closed.length === 0) {
+            this.openNewWorkspaceDialog();
+            return;
+        }
+
+        // Build a simple chooser in the existing dialog
+        this.elDialog.style.display = 'flex';
+        const title = this.elDialog.querySelector('.dialog__title');
+        if (title) title.textContent = 'Open Workspace';
+        const form = this.elDialog.querySelector('.dialog__body');
+        if (!form) { this.openNewWorkspaceDialog(); return; }
+
+        // Save original content and replace
+        if (!this._dialogOriginalHTML) {
+            this._dialogOriginalHTML = form.innerHTML;
+        }
+
+        let listHTML = '<div class="workspace-chooser">';
+        listHTML += '<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">Reopen a workspace or create a new one.</p>';
+        for (const ws of closed) {
+            listHTML += `<div class="workspace-chooser__item" data-ws-id="${ws.workspace_id}" style="
+                display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;
+                border-radius:6px;transition:background 0.15s;margin-bottom:2px;
+            ">
+                <span style="font-size:14px">📁</span>
+                <span style="flex:1;font-size:13px;color:var(--text-primary)">${this.escapeHtml(ws.name)}</span>
+                <span style="font-size:11px;color:var(--text-muted)">${ws.workspace_id.substring(0,8)}</span>
+            </div>`;
+        }
+        listHTML += `<div class="workspace-chooser__new" style="
+            display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;
+            border-radius:6px;transition:background 0.15s;margin-top:8px;
+            border-top:1px solid var(--border-subtle);padding-top:12px;
+        ">
+            <span style="font-size:14px">+</span>
+            <span style="font-size:13px;color:var(--accent-primary)">Create New Workspace</span>
+        </div>`;
+        listHTML += '</div>';
+
+        form.innerHTML = listHTML;
+
+        // Wire click handlers
+        form.querySelectorAll('.workspace-chooser__item').forEach(el => {
+            el.addEventListener('mouseenter', () => el.style.background = 'var(--bg-surface-hover)');
+            el.addEventListener('mouseleave', () => el.style.background = '');
+            el.addEventListener('click', () => {
+                const wsId = el.dataset.wsId;
+                this.reopenWorkspace(wsId);
+                this._restoreDialogBody(form);
+                this.closeNewWorkspaceDialog();
+            });
+        });
+
+        const newBtn = form.querySelector('.workspace-chooser__new');
+        if (newBtn) {
+            newBtn.addEventListener('mouseenter', () => newBtn.style.background = 'var(--bg-surface-hover)');
+            newBtn.addEventListener('mouseleave', () => newBtn.style.background = '');
+            newBtn.addEventListener('click', () => {
+                this._restoreDialogBody(form);
+                this.openNewWorkspaceDialog();
+            });
+        }
+    }
+
+    _restoreDialogBody(form) {
+        if (this._dialogOriginalHTML) {
+            form.innerHTML = this._dialogOriginalHTML;
+            // Re-bind element references since innerHTML replacement destroyed the old nodes
+            this.elWsName = document.getElementById('wsName');
+            this.elWsPath = document.getElementById('wsPath');
+            this.elWsBackend = document.getElementById('wsBackend');
+        }
+    }
+
     openNewWorkspaceDialog() {
+        // Restore dialog body if it was replaced by the workspace chooser
+        const form = this.elDialog.querySelector('.dialog__body');
+        if (form && this._dialogOriginalHTML) {
+            this._restoreDialogBody(form);
+        }
+        const title = this.elDialog.querySelector('.dialog__title');
+        if (title) title.textContent = 'New Workspace';
         this.elDialog.style.display = 'flex';
         this.elWsName.value = '';
         this.elWsPath.value = '';
@@ -850,6 +1011,7 @@ class AgentManagerApp {
             this.elAboutSection.style.display = '';
         }
         this.render();
+        this.saveUIState();
     }
 
     reopenWorkspace(workspaceId) {
@@ -857,6 +1019,7 @@ class AgentManagerApp {
         this.expandedWorkspaces.add(workspaceId);
         this.activeWorkspaceId = workspaceId;
         this.render();
+        this.saveUIState();
     }
 
     // ---- Session Actions ----
@@ -1349,6 +1512,7 @@ class AgentManagerApp {
         }
 
         this.render();
+        this.saveUIState();
     }
 
     renderSessionEvents(events) {
@@ -1944,6 +2108,7 @@ class AgentManagerApp {
         if (windowName === 'inbox') {
             this.switchView('inbox');
         }
+        this.saveUIState();
     }
 
     openEditor() {
@@ -2008,6 +2173,7 @@ class AgentManagerApp {
             layout.classList.remove('layout--resizing');
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
+            this.saveUIState();
         };
 
         handle.addEventListener('mousedown', (e) => {
