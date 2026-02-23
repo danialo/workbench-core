@@ -171,11 +171,18 @@
     min-width: 0;
 }
 
-.agent-panel__agent-session {
+.agent-panel__agent-label {
     font-size: 12px;
     font-weight: 500;
     color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-panel__agent-id {
     font-family: 'SF Mono', 'Fira Code', monospace;
+    color: var(--text-tertiary);
 }
 
 .agent-panel__agent-action {
@@ -206,6 +213,89 @@
 
 .agent-panel__approve-btn:hover {
     background: var(--accent-primary-hover);
+}
+
+.agent-panel__stop-btn {
+    padding: 3px 6px;
+    font-size: 9px;
+    font-weight: 700;
+    background: transparent;
+    color: var(--status-error);
+    border: 1px solid var(--status-error);
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+    opacity: 0.6;
+    transition: opacity var(--transition-fast), background var(--transition-fast);
+    line-height: 1;
+}
+
+.agent-panel__stop-btn:hover {
+    opacity: 1;
+    background: rgba(var(--status-error-rgb, 220, 80, 80), 0.1);
+}
+
+/* Wrapper holds agent row + optional expandable log */
+.agent-panel__agent-wrapper {
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.agent-panel__agent-wrapper:last-child {
+    border-bottom: none;
+}
+
+/* Dropdown arrow button */
+.agent-panel__dropdown-btn {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 12px;
+    flex-shrink: 0;
+    transition: color var(--transition-fast), transform var(--transition-fast);
+    padding: 0;
+    line-height: 1;
+}
+
+.agent-panel__dropdown-btn:hover {
+    color: var(--text-primary);
+}
+
+.agent-panel__dropdown-btn--open {
+    transform: rotate(180deg);
+}
+
+/* Inline activity log */
+.agent-panel__log {
+    padding: 4px 14px 8px 30px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--bg-input);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.agent-panel__log-entry {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    padding: 2px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    position: relative;
+    padding-left: 10px;
+}
+
+.agent-panel__log-entry::before {
+    content: '·';
+    position: absolute;
+    left: 0;
+    color: var(--text-muted);
 }
 
 /* Inbox notification for waiting agents */
@@ -310,4 +400,60 @@
 .agent-panel__agent--selected {
     background: var(--bg-surface-active);
     border-left: 2px solid var(--accent-primary);
+}
+
+/* Inbox notification for completed agents */
+.inbox-completed-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    margin: 4px 12px;
+    background: rgba(100, 100, 100, 0.08);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.inbox-completed-notice:hover {
+    background: rgba(100, 100, 100, 0.12);
+    border-color: var(--border-medium);
+}
+
+.inbox-completed-notice__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.inbox-completed-notice__dot--error {
+    background: var(--status-error);
+}
+
+.inbox-completed-notice__text {
+    flex: 1;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.inbox-completed-notice__text strong {
+    color: var(--text-primary);
+}
+
+.inbox-completed-notice__dismiss {
+    font-size: 10px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.inbox-completed-notice__dismiss:hover {
+    color: var(--text-tertiary);
+    background: var(--bg-surface-hover);
 }

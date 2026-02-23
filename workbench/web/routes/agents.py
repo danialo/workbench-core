@@ -26,17 +26,22 @@ class AgentRegistry:
 
     def __init__(self):
         self._agents: dict[str, dict[str, Any]] = {}
+        self._tasks: dict[str, asyncio.Task] = {}  # background task handles (not serialized)
         self._subscribers: list[asyncio.Queue] = []
 
-    def register(self, session_id: str, workspace_id: str, workspace_name: str) -> None:
+    _MAX_HISTORY = 20
+
+    def register(self, session_id: str, workspace_id: str, workspace_name: str, label: str | None = None) -> None:
         """Register an agent when streaming starts."""
         now = datetime.now(timezone.utc).isoformat()
         self._agents[session_id] = {
             "session_id": session_id,
             "workspace_id": workspace_id,
             "workspace_name": workspace_name,
+            "label": label,
             "status": "running",
             "current_action": None,
+            "action_history": [],
             "started_at": now,
             "last_update": now,
             "pending_confirmation": None,
@@ -44,16 +49,36 @@ class AgentRegistry:
         self._notify(self._agents[session_id])
 
     def update(self, session_id: str, **kwargs) -> None:
-        """Update agent state."""
+        """Update agent state, accumulating action_history."""
         agent = self._agents.get(session_id)
         if agent is None:
             return
+        # Accumulate action history when current_action changes to a non-None value
+        new_action = kwargs.get("current_action")
+        if new_action and new_action != agent.get("current_action"):
+            history = agent.setdefault("action_history", [])
+            history.append(new_action)
+            if len(history) > self._MAX_HISTORY:
+                history[:] = history[-self._MAX_HISTORY:]
         agent.update(kwargs)
         agent["last_update"] = datetime.now(timezone.utc).isoformat()
         self._notify(agent)
 
+    def attach_task(self, session_id: str, task: asyncio.Task) -> None:
+        """Attach a background asyncio.Task so it can be cancelled later."""
+        self._tasks[session_id] = task
+
+    def cancel(self, session_id: str) -> bool:
+        """Cancel a background task. Returns True if a task was found and cancelled."""
+        task = self._tasks.pop(session_id, None)
+        if task and not task.done():
+            task.cancel()
+            return True
+        return False
+
     def unregister(self, session_id: str, status: str = "completed") -> None:
-        """Mark agent as completed/errored."""
+        """Mark agent as completed/errored (keeps entry in registry)."""
+        self._tasks.pop(session_id, None)
         agent = self._agents.get(session_id)
         if agent is None:
             return
@@ -87,6 +112,16 @@ class AgentRegistry:
 # -----------------------------------------------------------------------
 # Endpoints
 # -----------------------------------------------------------------------
+
+@router.post("/{session_id}/stop")
+async def stop_agent(session_id: str, request: Request):
+    """Cancel a running background agent task."""
+    registry: AgentRegistry = request.app.state.agent_registry
+    cancelled = registry.cancel(session_id)
+    # Mark stopped in registry regardless (task may already be done)
+    registry.unregister(session_id, status="stopped")
+    return JSONResponse({"cancelled": cancelled, "session_id": session_id})
+
 
 @router.get("")
 async def list_agents(request: Request):

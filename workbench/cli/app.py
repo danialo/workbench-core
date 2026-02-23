@@ -495,6 +495,7 @@ def web(
             from workbench.backends.bridge import (
                 ListDiagnosticsTool, ResolveTargetTool,
                 RunDiagnosticTool, RunShellTool, SummarizeArtifactTool,
+                WriteFileTool,
             )
             from workbench.backends.local import LocalBackend
             from workbench.backends.router import BackendRouter
@@ -524,6 +525,7 @@ def web(
             registry.register(ListDiagnosticsTool(backend_router))
             registry.register(RunDiagnosticTool(backend_router))
             registry.register(RunShellTool(backend_router))
+            registry.register(WriteFileTool(backend_router))
             registry.register(SummarizeArtifactTool(artifact_store))
         except Exception:
             _log.exception("Failed to register backend tools")

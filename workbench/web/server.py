@@ -933,8 +933,9 @@ def create_app(
             if ws_obj:
                 ws_name = ws_obj.name
 
-        # Register agent in HUD
-        agent_registry.register(session_id, ws_id, ws_name)
+        # Register agent in HUD — label is derived from the first message content
+        label = content[:60] + "…" if len(content) > 60 else content
+        agent_registry.register(session_id, ws_id, ws_name, label=label)
 
         async def tracked_sse_generator():
             """Wrap SSE generator to update agent registry on key events."""

@@ -1,6 +1,7 @@
 """Recipe CRUD and execution endpoints."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,10 @@ class RunRecipeRequest(BaseModel):
 
 class SaveRecipeRequest(BaseModel):
     yaml_content: str = Field(..., min_length=1)
+
+
+class DeployRecipeRequest(BaseModel):
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 # -----------------------------------------------------------------------
@@ -131,6 +136,116 @@ async def run_recipe(
             "X-Session-Id": session_id,
             "X-Recipe-Name": recipe_name,
         },
+    )
+
+
+@router.post("/{workspace_id}/recipes/{recipe_name}/deploy")
+async def deploy_recipe(
+    workspace_id: str,
+    recipe_name: str,
+    req: DeployRecipeRequest,
+    request: Request,
+):
+    """Deploy a recipe as a background agent. Returns session_id immediately."""
+    recipe_registry = getattr(request.app.state, "recipe_registry", None)
+    if recipe_registry is None:
+        raise HTTPException(404, f"Recipe not found: {recipe_name}")
+
+    recipe = recipe_registry.get(recipe_name)
+    if recipe is None:
+        raise HTTPException(404, f"Recipe not found: {recipe_name}")
+
+    factory = getattr(request.app.state, "orchestrator_factory", None)
+    if factory is None:
+        return JSONResponse({"error": "LLM not configured"}, status_code=503)
+
+    session_store = request.app.state.session_store
+    agent_registry = request.app.state.agent_registry
+    cm = request.app.state.confirmation_manager
+    ws_manager = request.app.state.workspace_manager
+
+    # Resolve workspace name for HUD display
+    ws_name = "Playground"
+    ws = ws_manager.get(workspace_id)
+    if ws:
+        ws_name = ws.name
+
+    # Create session tagged as an agent deployment
+    metadata = {
+        "workspace_id": workspace_id,
+        "recipe_name": recipe_name,
+        "recipe_version": recipe.version,
+        "parameters": req.parameters,
+        "deployed_as_agent": True,
+        "status": "active",
+    }
+    session_id = await session_store.create_session(metadata)
+
+    executor = RecipeExecutor(factory)
+
+    async def _confirmation_callback(tool_name: str, tool_call) -> bool:
+        return await cm.wait_for_confirmation(
+            session_id=session_id,
+            tool_call_id=tool_call.id,
+            tool_name=tool_name,
+            tool_args=tool_call.arguments,
+        )
+
+    # Register in HUD before the background task starts
+    label = recipe.description or recipe.name
+    agent_registry.register(session_id, workspace_id, ws_name, label=f"{recipe.name}: {label}" if recipe.description else recipe.name)
+
+    async def _background_run():
+        try:
+            events = executor.execute(
+                recipe=recipe,
+                params=req.parameters,
+                session_id=session_id,
+                confirmation_callback=_confirmation_callback,
+            )
+            async for event in events:
+                if event.type == "tool_call_start":
+                    agent_registry.update(
+                        session_id,
+                        status="running",
+                        current_action=f"Calling {event.data.get('name', '')}",
+                    )
+                elif event.type == "confirmation_required":
+                    agent_registry.update(
+                        session_id,
+                        status="waiting",
+                        current_action=f"Awaiting: {event.data.get('tool_name', '')}",
+                        pending_confirmation={
+                            "tool_call_id": event.data.get("tool_call_id"),
+                            "tool_name": event.data.get("tool_name"),
+                            "tool_args": event.data.get("tool_args"),
+                        },
+                    )
+                elif event.type == "tool_call_result":
+                    agent_registry.update(
+                        session_id,
+                        status="running",
+                        current_action=None,
+                        pending_confirmation=None,
+                    )
+                elif event.type == "text_delta":
+                    agent_registry.update(
+                        session_id,
+                        status="running",
+                        current_action="Generating response",
+                    )
+        except Exception as e:
+            logger.error("Background agent error for session %s: %s", session_id, e)
+            agent_registry.unregister(session_id, status="error")
+        else:
+            agent_registry.unregister(session_id, status="completed")
+
+    task = asyncio.create_task(_background_run())
+    agent_registry.attach_task(session_id, task)
+
+    return JSONResponse(
+        {"session_id": session_id, "recipe_name": recipe_name, "status": "deployed"},
+        status_code=202,
     )
 
 

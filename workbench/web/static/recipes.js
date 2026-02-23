@@ -242,6 +242,8 @@ class RecipeWindow {
         // Run button
         html += `<div class="recipe-detail__actions">`;
         html += `<button class="recipe-run-btn" id="btnRunRecipe">Run Recipe</button>`;
+        html += `<button class="recipe-deploy-btn" id="btnDeployRecipe">Deploy Agent</button>`;
+        html += `<button class="recipe-edit-btn" id="btnEditRecipe">Edit</button>`;
         html += `<button class="recipe-stop-btn" id="btnStopRecipe" style="display:none">Stop</button>`;
         html += `</div>`;
 
@@ -256,11 +258,15 @@ class RecipeWindow {
 
         detailView.innerHTML = html;
 
-        // Bind run/stop buttons
+        // Bind run/stop/deploy/edit buttons
         const btnRun = document.getElementById('btnRunRecipe');
         const btnStop = document.getElementById('btnStopRecipe');
+        const btnDeploy = document.getElementById('btnDeployRecipe');
+        const btnEdit = document.getElementById('btnEditRecipe');
         if (btnRun) btnRun.addEventListener('click', () => this.runRecipe());
         if (btnStop) btnStop.addEventListener('click', () => this.stopRecipe());
+        if (btnDeploy) btnDeploy.addEventListener('click', () => this.deployRecipe());
+        if (btnEdit) btnEdit.addEventListener('click', () => this.showCreateForm(this.activeRecipe, true));
     }
 
     buildParamField(param) {
@@ -318,6 +324,50 @@ class RecipeWindow {
     }
 
     // ---- Execution ----
+
+    async deployRecipe() {
+        if (!this.activeRecipe) return;
+
+        const wsId = this.app.activeWorkspaceId || 'global';
+        const name = this.activeRecipe.name;
+        const parameters = this.collectParams();
+
+        const btn = document.getElementById('btnDeployRecipe');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Deploying…';
+        }
+
+        try {
+            const result = await this.app.apiFetch(
+                `/api/workspaces/${wsId}/recipes/${encodeURIComponent(name)}/deploy`,
+                { method: 'POST', body: JSON.stringify({ parameters }) }
+            );
+
+            // Open Agent Activity panel so user can see it running
+            if (this.app.agentHud) {
+                this.app.agentHud.openPanel();
+            }
+
+            // Flash the button green briefly
+            if (btn) {
+                btn.textContent = 'Deployed!';
+                btn.classList.add('recipe-deploy-btn--success');
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = 'Deploy Agent';
+                    btn.classList.remove('recipe-deploy-btn--success');
+                }, 2000);
+            }
+        } catch (e) {
+            console.error('Deploy failed:', e);
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Deploy Agent';
+            }
+            alert(`Deploy failed: ${e.message}`);
+        }
+    }
 
     async runRecipe() {
         if (!this.activeRecipe || this.running) return;
@@ -487,10 +537,11 @@ class RecipeWindow {
 
     // ---- Creation / Editor ----
 
-    async showCreateForm(prefill = null) {
-        this.activeRecipe = null;
+    async showCreateForm(prefill = null, isEditing = false) {
+        if (!isEditing) this.activeRecipe = null;
         this.editorMode = 'form';  // 'form' or 'yaml'
         this.editorPrefill = prefill;
+        this._isEditing = isEditing;
 
         // Fetch available tools for the tool picker
         if (!this._availableTools) {
@@ -528,7 +579,7 @@ class RecipeWindow {
         // Header with mode toggle
         editor.innerHTML = `
             <div class="recipe-editor__header">
-                <span class="recipe-editor__title">New Recipe</span>
+                <span class="recipe-editor__title">${this._isEditing ? 'Edit Recipe' : 'New Recipe'}</span>
                 <div class="recipe-editor__mode-toggle">
                     <button class="recipe-editor__mode-btn recipe-editor__mode-btn--active" data-editor-mode="form">Form</button>
                     <button class="recipe-editor__mode-btn" data-editor-mode="yaml">YAML</button>
@@ -568,10 +619,14 @@ class RecipeWindow {
         let html = `<div class="recipe-editor__form" id="recipeEditorForm">`;
 
         // Name
+        const nameReadonly = this._isEditing ? 'readonly style="opacity:0.6;cursor:not-allowed"' : '';
+        const nameHint = this._isEditing
+            ? '<span class="recipe-editor__hint">Name cannot be changed while editing</span>'
+            : '<span class="recipe-editor__hint">Alphanumeric, hyphens, underscores only</span>';
         html += `<div class="recipe-editor__field">
             <label class="recipe-editor__label">Name</label>
-            <input class="recipe-editor__input" id="editorName" placeholder="my-recipe" value="${this.esc(p.name || '')}">
-            <span class="recipe-editor__hint">Alphanumeric, hyphens, underscores only</span>
+            <input class="recipe-editor__input" id="editorName" placeholder="my-recipe" value="${this.esc(p.name || '')}" ${nameReadonly}>
+            ${nameHint}
         </div>`;
 
         // Description
@@ -883,7 +938,8 @@ class RecipeWindow {
 
             const result = await resp.json();
 
-            // Refresh and select the new recipe
+            this._isEditing = false;
+            // Refresh list and re-select
             await this.fetchRecipes();
             this.selectRecipe(result.name);
         } catch (err) {
@@ -893,13 +949,22 @@ class RecipeWindow {
     }
 
     cancelCreate() {
+        const wasEditing = this._isEditing;
+        const editedRecipe = wasEditing ? this.activeRecipe : null;
         this.editorPrefill = null;
-        const emptyState = document.getElementById('recipeEmptyState');
-        const detailView = document.getElementById('recipeDetailView');
-        if (emptyState) emptyState.style.display = '';
-        if (detailView) {
-            detailView.style.display = 'none';
-            detailView.innerHTML = '';
+        this._isEditing = false;
+
+        if (wasEditing && editedRecipe) {
+            // Return to the detail view for this recipe
+            this.renderDetail();
+        } else {
+            const emptyState = document.getElementById('recipeEmptyState');
+            const detailView = document.getElementById('recipeDetailView');
+            if (emptyState) emptyState.style.display = '';
+            if (detailView) {
+                detailView.style.display = 'none';
+                detailView.innerHTML = '';
+            }
         }
     }
 
