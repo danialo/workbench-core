@@ -80,6 +80,21 @@ session:
 #       username: deploy
 #       password_env: STAGING_SSH_PASS   # Env var containing the password
 
+# MCP server — expose workbench tools to MCP clients (Claude Desktop, Cursor, etc.)
+# Start with: wb mcp serve
+# Claude Desktop config.json example:
+#   {
+#     "mcpServers": {
+#       "workbench": {
+#         "command": "wb",
+#         "args": ["mcp", "serve"],
+#         "env": { "OPENAI_API_KEY": "sk-..." }
+#       }
+#     }
+#   }
+# To expose only specific tools:
+#   wb mcp serve --tools run_shell,write_file,run_diagnostic
+
 # Named profiles — override any top-level key per environment.
 # Activate with: wb tui --profile production
 # profiles:

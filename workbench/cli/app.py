@@ -30,11 +30,13 @@ tools_app = typer.Typer(help="Tool management")
 config_app = typer.Typer(help="Configuration management")
 
 recipes_app = typer.Typer(help="Recipe management")
+mcp_app = typer.Typer(help="MCP (Model Context Protocol) server")
 
 app.add_typer(sessions_app, name="sessions")
 app.add_typer(tools_app, name="tools")
 app.add_typer(config_app, name="config")
 app.add_typer(recipes_app, name="recipes")
+app.add_typer(mcp_app, name="mcp")
 
 console = Console()
 
@@ -716,6 +718,177 @@ def recipes_run(
             console.print(f"[red]Recipe error:[/red] {e}")
         finally:
             await store.close()
+
+    asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Shared helper: build registry + backends + policy from config
+# ---------------------------------------------------------------------------
+
+async def _build_tool_stack(profile: str | None = None):
+    """Build a ToolRegistry, BackendRouter, and PolicyEngine from config.
+
+    Returns (cfg, registry, backend_router, policy).
+    """
+    from workbench.session.artifacts import ArtifactStore
+    from workbench.tools.base import ToolRisk
+    from workbench.tools.policy import PolicyEngine
+    from workbench.tools.registry import ToolRegistry
+
+    _log = logging.getLogger(__name__)
+
+    config_path = _get_config_path()
+    cfg = load_config(config_path, profile=profile)
+
+    artifact_dir = Path(cfg.policy.audit_log_path).parent / "artifacts"
+    artifact_store = ArtifactStore(str(artifact_dir))
+
+    registry = ToolRegistry()
+    backend_router = None
+
+    try:
+        from workbench.backends.bridge import (
+            ListDiagnosticsTool, ResolveTargetTool,
+            RunDiagnosticTool, RunShellTool, SummarizeArtifactTool,
+            WriteFileTool,
+        )
+        from workbench.backends.local import LocalBackend
+        from workbench.backends.router import BackendRouter
+        from workbench.backends.ssh import SSHBackend
+
+        backend_router = BackendRouter()
+        backend_router.set_default(LocalBackend())
+
+        for host_cfg in cfg.backends.ssh_hosts:
+            ssh = SSHBackend(
+                host=host_cfg["host"],
+                port=host_cfg.get("port", 22),
+                username=host_cfg.get("username", "root"),
+                key_path=host_cfg.get("key_path"),
+                password=os.environ.get(host_cfg.get("password_env", "")) if host_cfg.get("password_env") else None,
+                timeout=host_cfg.get("timeout", 10),
+            )
+            try:
+                await ssh.connect()
+                backend_router.register(host_cfg["name"], ssh)
+                backend_router.register(host_cfg["host"], ssh)
+                _log.info("SSH connected: %s (%s)", host_cfg["name"], host_cfg["host"])
+            except Exception as e:
+                _log.warning("SSH connect failed for %s: %s", host_cfg.get("name", host_cfg["host"]), e)
+
+        registry.register(ResolveTargetTool(backend_router))
+        registry.register(ListDiagnosticsTool(backend_router))
+        registry.register(RunDiagnosticTool(backend_router))
+        registry.register(RunShellTool(backend_router))
+        registry.register(WriteFileTool(backend_router))
+        registry.register(SummarizeArtifactTool(artifact_store))
+    except Exception:
+        _log.exception("Failed to register backend tools")
+
+    risk_map = {r.name: r for r in ToolRisk}
+    max_risk = risk_map.get(cfg.policy.max_risk, ToolRisk.READ_ONLY)
+    policy = PolicyEngine(
+        max_risk=max_risk,
+        confirm_destructive=cfg.policy.confirm_destructive,
+        confirm_shell=cfg.policy.confirm_shell,
+        confirm_write=cfg.policy.confirm_write,
+        blocked_patterns=cfg.policy.blocked_patterns,
+        allowed_patterns=getattr(cfg.policy, 'allowed_patterns', []),
+        redaction_patterns=cfg.policy.redaction_patterns,
+        audit_log_path=cfg.policy.audit_log_path,
+        audit_max_size_mb=cfg.policy.audit_max_size_mb,
+        audit_keep_files=cfg.policy.audit_keep_files,
+    )
+
+    return cfg, registry, backend_router, policy
+
+
+# ---------------------------------------------------------------------------
+# MCP commands
+# ---------------------------------------------------------------------------
+
+@mcp_app.command("serve")
+def mcp_serve(
+    profile: Optional[str] = typer.Option(None, help="Config profile to activate"),
+    tools: Optional[str] = typer.Option(None, help="Comma-separated tool whitelist (default: all)"),
+    transport: str = typer.Option("stdio", help="Transport: stdio or sse"),
+    sse_port: int = typer.Option(8765, help="Port for SSE transport"),
+):
+    """Start workbench as an MCP server.
+
+    Exposes all registered tools (run_shell, write_file, diagnostics, etc.)
+    over the Model Context Protocol. Use stdio transport for Claude Desktop
+    integration, or SSE for remote clients.
+
+    Claude Desktop config example:
+        {
+          "mcpServers": {
+            "workbench": {
+              "command": "wb",
+              "args": ["mcp", "serve"]
+            }
+          }
+        }
+    """
+    tool_filter = [t.strip() for t in tools.split(",")] if tools else None
+
+    async def _run():
+        from workbench.mcp.server import create_mcp_server, run_stdio
+
+        cfg, registry, backend_router, policy = await _build_tool_stack(profile=profile)
+        server = create_mcp_server(registry, policy, tool_filter=tool_filter)
+
+        if transport == "sse":
+            import uvicorn
+            from starlette.applications import Starlette
+            from starlette.responses import Response
+            from starlette.routing import Mount, Route
+            from mcp.server.sse import SseServerTransport
+
+            sse_transport = SseServerTransport("/messages/")
+
+            async def handle_sse(request):
+                async with sse_transport.connect_sse(
+                    request.scope, request.receive, request._send
+                ) as streams:
+                    await server.run(streams[0], streams[1], server.create_initialization_options())
+                return Response()
+
+            starlette_app = Starlette(routes=[
+                Route("/sse", endpoint=handle_sse),
+                Mount("/messages/", app=sse_transport.handle_post_message),
+            ])
+
+            console.print(f"[bold]MCP Server[/bold] (SSE) on port {sse_port}", file=sys.stderr)
+            console.print(f"[dim]{len(registry.list())} tools registered[/dim]", file=sys.stderr)
+            config = uvicorn.Config(starlette_app, host="0.0.0.0", port=sse_port)
+            uv_server = uvicorn.Server(config)
+            await uv_server.serve()
+        else:
+            # stdio — no console output (stdout is the MCP channel)
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(levelname)s %(name)s: %(message)s",
+                stream=sys.stderr,
+            )
+            await run_stdio(server)
+
+    asyncio.run(_run())
+
+
+@mcp_app.command("list")
+def mcp_list(
+    profile: Optional[str] = typer.Option(None, help="Config profile"),
+):
+    """List tools that would be exposed via MCP."""
+    async def _run():
+        cfg, registry, _, policy = await _build_tool_stack(profile=profile)
+        tools = registry.list()
+        console.print(f"[bold]{len(tools)} tools available for MCP:[/bold]\n")
+        for t in tools:
+            risk = t.risk_level.name
+            console.print(f"  [cyan]{t.name:<30}[/cyan] [{risk:<12}] {t.description[:60]}")
 
     asyncio.run(_run())
 
