@@ -90,6 +90,8 @@ Inside chat you get inline commands: `/tools`, `/history`, `/switch <provider>`,
 wb web --host 0.0.0.0 --port 8080    # Operations Center
 ```
 
+> **Host IP**: The `restart.sh` helper script uses `$WORKBENCH_HOST` (defaults to `0.0.0.0`) for health-check URLs. Set it to your server's IP if needed: `export WORKBENCH_HOST=10.0.0.5`
+
 The web UI runs a FastAPI server with SSE streaming and serves a single-page app at the root. Tabs: **Inbox** (chat, conversations, workspace browser), **Triage** (investigation management), **Evidence** (audit trail — coming soon), **Recipes** (reusable prompt workflows). An inline resizable agent activity panel shows running agents with color-coded status. A context pill bar provides workspace-scoped context injection into LLM prompts. Sidebar bottom nav provides access to **Knowledge**, **Browser**, **Settings**, and **Feedback** overlays. The settings panel includes tabbed navigation for General, LLM/Providers, Agents, Integrations, and Policy & Security. Panels are resizable via drag handles.
 
 ## Architecture

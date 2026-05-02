@@ -11,4 +11,4 @@ source /home/d/git/workbench-core/.venv/bin/activate
 wb web --host 0.0.0.0 --port 8080 > /tmp/wb-web.log 2>&1 &
 echo "PID: $!"
 sleep 2
-curl -s http://172.239.66.45:8080/api/providers | python3 -m json.tool 2>/dev/null || echo "waiting..."
+curl -s http://${WORKBENCH_HOST:-0.0.0.0}:8080/api/providers | python3 -m json.tool 2>/dev/null || echo "waiting..."
